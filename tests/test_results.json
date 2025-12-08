@@ -18,16 +18,11 @@
                 "Remarks": [
                     {
                         "DetectedText": "Seller will consider offers.",
-                        "explanation": "This statement is neutral and does not reference any protected class."
+                        "explanation": "This phrase is neutral and does not reference any protected class or imply preference/exclusion."
                     }
                 ],
-                "PrivateRemarks": [
-                    {
-                        "DetectedText": "Agent will offer bonus if closed fast.",
-                        "explanation": "This statement pertains to transaction terms and does not reference any protected class."
-                    }
-                ],
-                "Total_tokens": 667
+                "PrivateRemarks": [],
+                "Total_tokens": 641
             },
             "PROMO": {
                 "Remarks": [],
@@ -39,8 +34,8 @@
                 ],
                 "Total_tokens": 548
             },
-            "latency": 5.993278503417969,
-            "tokens_used": 1718
+            "latency": 7.819610595703125,
+            "tokens_used": 1692
         },
         {
             "mlsnum": "564554564OD",
@@ -50,25 +45,15 @@
                 "PrivateRemarks": [
                     {
                         "DetectedText": "Seller is open to buyer concessions.",
-                        "explanation": "Mentions potential financial incentives for buyers."
+                        "explanation": "Mentions potential financial incentives for buyers, which is prohibited."
                     }
                 ],
-                "Total_tokens": 500
+                "Total_tokens": 504
             },
             "FAIR": {
-                "Remarks": [
-                    {
-                        "DetectedText": "contact agent on 704-555-1234 for more info.",
-                        "explanation": "This is a neutral statement providing contact information and does not reference any protected classes."
-                    }
-                ],
-                "PrivateRemarks": [
-                    {
-                        "DetectedText": "Seller is open to buyer concessions.",
-                        "explanation": "This statement discusses negotiation terms and does not reference any protected classes."
-                    }
-                ],
-                "Total_tokens": 697
+                "Remarks": [],
+                "PrivateRemarks": [],
+                "Total_tokens": 595
             },
             "PROMO": {
                 "Remarks": [
@@ -80,11 +65,11 @@
                 "PrivateRemarks": [],
                 "Total_tokens": 544
             },
-            "latency": 4.1833953857421875,
-            "tokens_used": 1741
+            "latency": 4.895999193191528,
+            "tokens_used": 1643
         }
     ],
     "error_message": "",
-    "total_tokens": 3459,
-    "elapsed_time": 5.998281002044678
+    "total_tokens": 3335,
+    "elapsed_time": 7.862455606460571
 }
