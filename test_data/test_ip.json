@@ -1,0 +1,32 @@
+{
+    "AIViolationID": [
+        {
+            "ID": "COMP",
+            "CheckColumns": "Remarks, PrivateRemarks"
+        },
+        {
+            "ID": "FAIR",
+            "CheckColumns": "Remarks"
+        },
+        {
+            "ID": "PROMO",
+            "CheckColumns": "Remarks, PrivateRemarks,Directions"
+        }
+    ],
+    "Data": [
+        {
+            "mlsnum": "564564564OD",
+            "mls_id": "TESTMLS",
+            "Remarks": "Seller will consider offers.",
+            "PrivateRemarks": "Agent will offer bonus if closed fast.",
+            "Directions": "Take Main St. to 5th Ave."
+        },
+        {
+            "mlsnum": "564554564OD",
+            "mls_id": "TESTMLS",
+            "Remarks": "Buyer must verify all information.",
+            "PrivateRemarks": "Seller is open to buyer concessions.",
+            "Directions": "From Hwy 101, exit at Elm St."
+        }
+    ]
+}

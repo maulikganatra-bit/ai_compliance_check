@@ -1,0 +1,90 @@
+{
+    "ok": 200,
+    "results": [
+        {
+            "mlsnum": "564564564OD",
+            "mls_id": "TESTMLS",
+            "COMP": {
+                "Remarks": [],
+                "PrivateRemarks": [
+                    {
+                        "DetectedText": "Agent will offer bonus if closed fast.",
+                        "explanation": "This implies a financial incentive or bonus for closing quickly, which is prohibited."
+                    }
+                ],
+                "Total_tokens": 503
+            },
+            "FAIR": {
+                "Remarks": [
+                    {
+                        "DetectedText": "Seller will consider offers.",
+                        "explanation": "This statement is neutral and does not reference any protected class."
+                    }
+                ],
+                "PrivateRemarks": [
+                    {
+                        "DetectedText": "Agent will offer bonus if closed fast.",
+                        "explanation": "This statement pertains to transaction terms and does not reference any protected class."
+                    }
+                ],
+                "Total_tokens": 667
+            },
+            "PROMO": {
+                "Remarks": [],
+                "PrivateRemarks": [
+                    {
+                        "DetectedText": "Agent will offer bonus if closed fast.",
+                        "explanation": "This statement promotes the agent by offering a bonus, which is a form of self-promotion."
+                    }
+                ],
+                "Total_tokens": 548
+            },
+            "latency": 5.993278503417969,
+            "tokens_used": 1718
+        },
+        {
+            "mlsnum": "564554564OD",
+            "mls_id": "TESTMLS",
+            "COMP": {
+                "Remarks": [],
+                "PrivateRemarks": [
+                    {
+                        "DetectedText": "Seller is open to buyer concessions.",
+                        "explanation": "Mentions potential financial incentives for buyers."
+                    }
+                ],
+                "Total_tokens": 500
+            },
+            "FAIR": {
+                "Remarks": [
+                    {
+                        "DetectedText": "contact agent on 704-555-1234 for more info.",
+                        "explanation": "This is a neutral statement providing contact information and does not reference any protected classes."
+                    }
+                ],
+                "PrivateRemarks": [
+                    {
+                        "DetectedText": "Seller is open to buyer concessions.",
+                        "explanation": "This statement discusses negotiation terms and does not reference any protected classes."
+                    }
+                ],
+                "Total_tokens": 697
+            },
+            "PROMO": {
+                "Remarks": [
+                    {
+                        "DetectedText": "contact agent on 704-555-1234 for more info.",
+                        "explanation": "Includes personal contact information, which is prohibited."
+                    }
+                ],
+                "PrivateRemarks": [],
+                "Total_tokens": 544
+            },
+            "latency": 4.1833953857421875,
+            "tokens_used": 1741
+        }
+    ],
+    "error_message": "",
+    "total_tokens": 3459,
+    "elapsed_time": 5.998281002044678
+}

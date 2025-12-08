@@ -1,0 +1,31 @@
+{
+  "AIViolationID": [
+    {
+      "ID": "FAIR",
+      "CheckColumns": "Remarks,PrivateRemarks"
+    }
+  ],
+  "Data": [
+    {
+      "mlsnum": "ML00001",
+      "mls_id": "TESTMLS",
+      "Remarks": "Beautiful home in great neighborhood with excellent schools nearby.",
+      "PrivateRemarks": "Perfect for families with children. Quiet street.",
+      "Directions": ""
+    },
+    {
+      "mlsnum": "ML00002",
+      "mls_id": "TESTMLS",
+      "Remarks": "Stunning property with modern amenities.",
+      "PrivateRemarks": "Seller very motivated. Bring all offers.",
+      "Directions": ""
+    },
+    {
+      "mlsnum": "ML00003",
+      "mls_id": "TESTMLS",
+      "Remarks": "Charming house with updated kitchen and bathrooms.",
+      "PrivateRemarks": "Great starter home. Clean title.",
+      "Directions": ""
+    }
+  ]
+}
