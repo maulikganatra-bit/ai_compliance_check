@@ -1,0 +1,65 @@
+{
+    "ok": 200,
+    "results": [
+        {
+            "mlsnum": "564564564OD",
+            "mls_id": "TESTMLS",
+            "COMP": {
+                "Remarks": [],
+                "PrivateRemarks": [],
+                "Total_tokens": 446
+            },
+            "FAIR": {
+                "Remarks": [
+                    {
+                        "DetectedText": "Seller will consider offers.",
+                        "explanation": "This phrase is neutral and does not reference any protected class or imply preference/exclusion."
+                    }
+                ],
+                "PrivateRemarks": [],
+                "Total_tokens": 628
+            },
+            "PROMO": {
+                "Remarks": [],
+                "PrivateRemarks": [],
+                "Total_tokens": 490
+            },
+            "latency": 8.927610874176025,
+            "tokens_used": 1564
+        },
+        {
+            "mlsnum": "564554564OD",
+            "mls_id": "TESTMLS",
+            "COMP": {
+                "Remarks": [],
+                "PrivateRemarks": [],
+                "Total_tokens": 455
+            },
+            "FAIR": {
+                "Remarks": [
+                    {
+                        "DetectedText": "contact agent on 704-555-1234 for more info.",
+                        "explanation": "This phrase is neutral and does not reference any protected classes or imply preference/exclusion."
+                    }
+                ],
+                "PrivateRemarks": [],
+                "Total_tokens": 645
+            },
+            "PROMO": {
+                "Remarks": [
+                    {
+                        "DetectedText": "contact agent on 704-555-1234 for more info.",
+                        "explanation": "Includes personal contact information, which is prohibited."
+                    }
+                ],
+                "PrivateRemarks": [],
+                "Total_tokens": 538
+            },
+            "latency": 11.238718509674072,
+            "tokens_used": 1638
+        }
+    ],
+    "error_message": "",
+    "total_tokens": 3202,
+    "elapsed_time": 11.238885879516602
+}

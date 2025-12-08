@@ -44,3 +44,8 @@ starlette
 # Data Validation
 pydantic
 
+# Testing
+pytest
+pytest-asyncio
+httpx
+
