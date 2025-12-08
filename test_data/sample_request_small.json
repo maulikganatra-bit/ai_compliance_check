@@ -1,0 +1,88 @@
+{
+  "AIViolationID": [
+    {
+      "ID": "FAIR",
+      "CheckColumns": "Remarks,PrivateRemarks"
+    },
+    {
+      "ID": "COMP",
+      "CheckColumns": "Remarks,PrivateRemarks"
+    },
+    {
+      "ID": "PROMO",
+      "CheckColumns": "Remarks,PrivateRemarks"
+    }
+  ],
+  "Data": [
+    {
+      "mlsnum": "ML12345",
+      "mls_id": "TESTMLS",
+      "Remarks": "Beautiful 3BR/2BA home with spacious backyard. Perfect for families. Contact us today!",
+      "PrivateRemarks": "Seller motivated. Great neighborhood, mostly families with children.",
+      "Directions": "Take Main St north, turn right on Oak Ave"
+    },
+    {
+      "mlsnum": "ML12346",
+      "mls_id": "TESTMLS",
+      "Remarks": "Stunning luxury condo in downtown. Walking distance to everything. Won't last long!",
+      "PrivateRemarks": "Ideal for young professionals. No kids in building currently.",
+      "Directions": "Downtown area, near convention center"
+    },
+    {
+      "mlsnum": "ML12347",
+      "mls_id": "TESTMLS",
+      "Remarks": "Charming starter home with updated kitchen. Move-in ready. Call now for showing!",
+      "PrivateRemarks": "Priced to sell quickly. Quiet street, good schools.",
+      "Directions": "Follow Highway 50, exit on Park Blvd"
+    },
+    {
+      "mlsnum": "ML12348",
+      "mls_id": "TESTMLS",
+      "Remarks": "Spacious 4BR/3BA with pool. Great for entertaining. Schedule your private tour today!",
+      "PrivateRemarks": "Owner relocating. Commission negotiable for quick close.",
+      "Directions": "North side, near golf course entrance"
+    },
+    {
+      "mlsnum": "ML12349",
+      "mls_id": "TESTMLS",
+      "Remarks": "Cozy cottage with garden. Perfect retirement home. Don't miss this opportunity!",
+      "PrivateRemarks": "Seller prefers mature buyers. Quiet community.",
+      "Directions": "Near the lake, look for blue mailbox"
+    },
+    {
+      "mlsnum": "ML12350",
+      "mls_id": "ANOTHERMLS",
+      "Remarks": "Modern townhouse with garage. Excellent location. Act fast before it's gone!",
+      "PrivateRemarks": "HOA very strict. Best for professionals without pets.",
+      "Directions": "Take exit 15, right at second light"
+    },
+    {
+      "mlsnum": "ML12351",
+      "mls_id": "ANOTHERMLS",
+      "Remarks": "Renovated bungalow with hardwood floors. Great investment property!",
+      "PrivateRemarks": "Current tenants are elderly. Property sold as-is.",
+      "Directions": "Southeast corner of Elm and 5th"
+    },
+    {
+      "mlsnum": "ML12352",
+      "mls_id": "ANOTHERMLS",
+      "Remarks": "Luxury estate with mountain views. One of a kind property. Call today!",
+      "PrivateRemarks": "Seller offering 3% commission. Bring all offers.",
+      "Directions": "Mountain Road, last house on left"
+    },
+    {
+      "mlsnum": "ML12353",
+      "mls_id": "ANOTHERMLS",
+      "Remarks": "Affordable 2BR/1BA apartment. Great for singles or couples. Won't find better price!",
+      "PrivateRemarks": "No families, building rules. Small pets only.",
+      "Directions": "Downtown, above the coffee shop"
+    },
+    {
+      "mlsnum": "ML12354",
+      "mls_id": "ANOTHERMLS",
+      "Remarks": "Stunning waterfront property with dock. Your dream home awaits!",
+      "PrivateRemarks": "Motivated seller. 2.5% commission. Quick close possible.",
+      "Directions": "Lakeside Drive, house number 789"
+    }
+  ]
+}
