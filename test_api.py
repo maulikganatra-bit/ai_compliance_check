@@ -4,8 +4,11 @@ import pandas as pd
 
 
 # URL of your locally running API
-url = "http://127.0.0.1:8000/check_compliance"
+# url = "http://127.0.0.1:8000/check_compliance"
 # url = "http://TMDWEBLA01/check_compliance"
+# url = "http://ec2-13-232-128-11.ap-south-1.compute.amazonaws.com:8000/check_compliance"
+url = "http://ec2-54-219-33-1.us-west-1.compute.amazonaws.com:8000/check_compliance"
+url = "http://tmcailinux01.dev.themls.com:8000/check_compliance"
 
 # test_data = pd.read_csv("experiment_result_data/combined_compensation_violation_all_mls_gpt4o_judge_definate_labels.csv")
 # test_data = test_data.dropna(subset=['CaseOpenRemarks',"PrivateRemarks"]).reset_index(drop=True)

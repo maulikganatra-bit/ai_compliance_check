@@ -42,3 +42,21 @@ def get_comp_violation_response(public_remarks: str, private_agent_remarks: str)
     json_result['Total_tokens'] = response.usage.total_tokens
 
     return json_result
+
+
+
+def get_marketing_rule_violation_response(public_remarks: str, private_agent_remarks: str):
+    response = client.responses.create(
+    prompt={
+        "id": "pmpt_692458777bf08196abfd60b7c31d760e0eeb936b11d480f6",
+        "variables": {
+                "public_remarks": public_remarks or "",
+                "private_agent_remarks": private_agent_remarks or ""
+            }
+    }
+    )
+    json_content = response_parser(response.output_text)
+    json_result = json_content['result']
+    json_result['Remarks'] = json_result.pop('public_remarks', [])
+    json_result['PrivateRemarks'] = json_result.pop('private_agent_remarks', [])
+    json_result['Total_tokens'] = response.usage.total_tokens
