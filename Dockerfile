@@ -4,6 +4,13 @@
 FROM python:3.10-slim
 
 # ----------------------------------------------------------
+# Install system dependencies for health checks
+# ----------------------------------------------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# ----------------------------------------------------------
 #  Set working directory inside the container
 # ----------------------------------------------------------
 WORKDIR /app

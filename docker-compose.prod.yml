@@ -1,0 +1,58 @@
+# ============================================================================
+# Docker Compose Configuration - PRODUCTION
+# ============================================================================
+# Optimized for production deployment with multiple workers and no hot-reload
+# ============================================================================
+
+version: "3.9"
+
+services:
+  # --------------------------------------------------------------------------
+  # API Service - Production Configuration
+  # --------------------------------------------------------------------------
+  api:
+    build: .
+    container_name: compliance_api_prod
+    restart: always  # Always restart on failure
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/app/logs  # Only mount logs directory (no code mounting)
+    environment:
+      - PYTHONUNBUFFERED=1
+      - ENVIRONMENT=production
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    # Production: Multiple workers, no reload
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
+    # Resource limits (adjust based on your server)
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+
+# ============================================================================
+# Usage:
+# ============================================================================
+# Start production services:
+#   docker-compose -f docker-compose.prod.yml up -d
+#
+# View logs:
+#   docker-compose -f docker-compose.prod.yml logs -f
+#
+# Stop services:
+#   docker-compose -f docker-compose.prod.yml down
+#
+# Rebuild:
+#   docker-compose -f docker-compose.prod.yml up --build -d
+# ============================================================================

@@ -11,6 +11,49 @@ This module centralizes all configurable parameters for:
 Modify these values to tune performance based on your OpenAI tier and requirements.
 """
 import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+# ============================================================================
+# OPENAI API KEY CONFIGURATION
+# ============================================================================
+# Load API key from .env file if it exists, otherwise use environment variable
+
+def get_openai_api_key() -> str:
+    """Get OpenAI API key from .env file or environment variable.
+    
+    Priority:
+    1. If .env file exists, load from there
+    2. Otherwise, use OS environment variable
+    
+    Returns:
+        str: OpenAI API key
+        
+    Raises:
+        ValueError: If API key is not found in either location
+    """
+    # Check if .env file exists in project root
+    env_file = Path(__file__).parent.parent.parent / ".env"
+    
+    if env_file.exists():
+        # Load from .env file
+        load_dotenv(env_file)
+    
+    # Get API key from environment (works for both .env and OS env vars)
+    api_key = os.getenv("OPENAI_API_KEY")
+    
+    if not api_key:
+        raise ValueError(
+            "OPENAI_API_KEY not found. Please set it in:\n"
+            "  1. .env file in project root, OR\n"
+            "  2. System environment variable\n"
+            "Example: OPENAI_API_KEY=sk-your-key-here"
+        )
+    
+    return api_key
+
+# Load and validate API key on module import
+OPENAI_API_KEY = get_openai_api_key()
 
 # ============================================================================
 # OPENAI TOKEN SETTINGS

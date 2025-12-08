@@ -1,29 +1,78 @@
+# ============================================================================
+# Docker Compose Configuration for AI Compliance Check API
+# ============================================================================
+# This file defines services for running the MLS compliance checking API
+# in containerized environments (development or production).
+# ============================================================================
+
 version: "3.9"
 
 services:
+  # --------------------------------------------------------------------------
+  # API Service - FastAPI Application
+  # --------------------------------------------------------------------------
   api:
     build: .
     container_name: compliance_api
-    restart: always
+    restart: unless-stopped
     ports:
       - "8000:8000"
     env_file:
-      - .env
+      - .env  # Load environment variables (OPENAI_API_KEY, etc.)
     volumes:
-      - .:/app
-    depends_on:
-      - redis  # optional dependency (for future async task queuing)
-    command: >
-      uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2
+      - .:/app  # Mount current directory for hot-reload during development
+      - ./logs:/app/logs  # Persist logs outside container
+    environment:
+      - PYTHONUNBUFFERED=1  # Force real-time log output
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    # Development mode: Use --reload for auto-restart on code changes
+    # Production mode: Use --workers 4 for multiple worker processes
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
-  redis:
-    image: redis:7
-    container_name: compliance_redis
-    restart: always
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
+# ============================================================================
+# Additional Services (Currently Unused - Uncomment if needed)
+# ============================================================================
+# 
+# redis:
+#   image: redis:7-alpine
+#   container_name: compliance_redis
+#   restart: unless-stopped
+#   ports:
+#     - "6379:6379"
+#   volumes:
+#     - redis_data:/data
+#   healthcheck:
+#     test: ["CMD", "redis-cli", "ping"]
+#     interval: 10s
+#     timeout: 3s
+#     retries: 3
+#
+# volumes:
+#   redis_data:
 
-volumes:
-  redis_data:
+# ============================================================================
+# Usage Instructions:
+# ============================================================================
+# Development:
+#   docker-compose up              # Start with logs
+#   docker-compose up -d           # Start in background
+#   docker-compose logs -f api     # Follow logs
+#   docker-compose down            # Stop all services
+#
+# Production:
+#   1. Change command to: --workers 4 (remove --reload)
+#   2. Set restart: always
+#   3. docker-compose up -d
+#
+# Rebuild after code changes:
+#   docker-compose up --build
+#
+# Access API:
+#   http://localhost:8000/docs      # Swagger UI
+#   http://localhost:8000/health    # Health check endpoint
+# ============================================================================

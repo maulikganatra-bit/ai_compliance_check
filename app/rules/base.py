@@ -3,12 +3,11 @@ from app.utils.utils import response_parser
 from app.core.logger import rules_logger
 from app.core.retry_handler import retry_with_backoff
 from app.core.rate_limiter import get_rate_limiter
-from dotenv import load_dotenv
-load_dotenv()
+from app.core.config import OPENAI_API_KEY
 
 # Client will be set from main.py during startup
 # For now, create a default client (will be replaced by pooled client)
-client = AsyncOpenAI()
+client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
 
 def set_client(new_client: AsyncOpenAI):

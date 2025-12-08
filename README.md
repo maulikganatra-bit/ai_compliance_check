@@ -92,11 +92,34 @@ WARNING: Batch processing completed with 1 errors out of 2 records
 
 ## Running the API
 
+### Environment Setup
+
+The API automatically loads the OpenAI API key from:
+1. **`.env` file** (if it exists in project root) - Recommended
+2. **System environment variable** (if no .env file)
+
+**Option 1: Using .env file (Recommended)**
+```bash
+# Create .env file in project root
+echo OPENAI_API_KEY=sk-your-key-here > .env
+```
+
+**Option 2: Using environment variables**
+```powershell
+# PowerShell
+$env:OPENAI_API_KEY="sk-your-key-here"
+
+# Or permanently in Windows
+setx OPENAI_API_KEY "sk-your-key-here"
+```
+
+```bash
+# Linux/Mac
+export OPENAI_API_KEY="sk-your-key-here"
+```
+
 ### Development
 ```powershell
-# Set environment variables
-$env:OPENAI_API_KEY="your_key_here"
-
 # Run with hot reload
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```

@@ -17,10 +17,6 @@ from app.core.rate_limiter import get_rate_limiter
 from app.core.config import MAX_CONNECTIONS, MAX_KEEPALIVE_CONNECTIONS, API_TIMEOUT
 import httpx
 from openai import AsyncOpenAI
-from dotenv import load_dotenv
-load_dotenv()
-
-
 
 # Global OpenAI client with connection pooling
 # This client is shared across all requests for efficient connection reuse
@@ -52,6 +48,8 @@ async def lifespan(app: FastAPI):
     # Connection pool allows reusing TCP connections across requests
     # Benefits: Reduces latency (no TCP handshake), handles high concurrency
     global openai_client
+    from app.core.config import OPENAI_API_KEY
+    
     httpx_client = httpx.AsyncClient(
         limits=httpx.Limits(
             max_connections=MAX_CONNECTIONS,  # Max 200 concurrent connections
@@ -60,6 +58,7 @@ async def lifespan(app: FastAPI):
         timeout=API_TIMEOUT  # 30 second timeout per request
     )
     openai_client = AsyncOpenAI(
+        api_key=OPENAI_API_KEY,
         http_client=httpx_client,
         max_retries=0  # Disable built-in retries (we handle retries with exponential backoff)
     )

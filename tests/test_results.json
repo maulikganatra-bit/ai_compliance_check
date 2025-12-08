@@ -15,27 +15,22 @@
                 "Total_tokens": 503
             },
             "FAIR": {
-                "Remarks": [
-                    {
-                        "DetectedText": "Seller will consider offers.",
-                        "explanation": "This phrase is neutral and does not reference any protected class or imply preference/exclusion."
-                    }
-                ],
+                "Remarks": [],
                 "PrivateRemarks": [],
-                "Total_tokens": 641
+                "Total_tokens": 617
             },
             "PROMO": {
                 "Remarks": [],
                 "PrivateRemarks": [
                     {
                         "DetectedText": "Agent will offer bonus if closed fast.",
-                        "explanation": "This statement promotes the agent by offering a bonus, which is a form of self-promotion."
+                        "explanation": "Offering a bonus is a form of self-promotion or incentive that is not allowed."
                     }
                 ],
-                "Total_tokens": 548
+                "Total_tokens": 545
             },
-            "latency": 7.819610595703125,
-            "tokens_used": 1692
+            "latency": 5.824660539627075,
+            "tokens_used": 1665
         },
         {
             "mlsnum": "564554564OD",
@@ -45,10 +40,10 @@
                 "PrivateRemarks": [
                     {
                         "DetectedText": "Seller is open to buyer concessions.",
-                        "explanation": "Mentions potential financial incentives for buyers, which is prohibited."
+                        "explanation": "Mentions potential financial incentives for buyers."
                     }
                 ],
-                "Total_tokens": 504
+                "Total_tokens": 500
             },
             "FAIR": {
                 "Remarks": [],
@@ -65,11 +60,11 @@
                 "PrivateRemarks": [],
                 "Total_tokens": 544
             },
-            "latency": 4.895999193191528,
-            "tokens_used": 1643
+            "latency": 5.938324451446533,
+            "tokens_used": 1639
         }
     ],
     "error_message": "",
-    "total_tokens": 3335,
-    "elapsed_time": 7.862455606460571
+    "total_tokens": 3304,
+    "elapsed_time": 5.940859794616699
 }
