@@ -3,6 +3,8 @@ from app.utils.utils import response_parser
 from app.core.logger import rules_logger
 from app.core.retry_handler import retry_with_backoff
 from app.core.rate_limiter import get_rate_limiter
+from dotenv import load_dotenv
+load_dotenv()
 
 # Client will be set from main.py during startup
 # For now, create a default client (will be replaced by pooled client)
@@ -68,6 +70,7 @@ async def get_comp_violation_response(public_remarks, private_remarks, direction
         response = await client.responses.create(
             prompt={
                 "id": "pmpt_6908794dae1c8195a2902ca8e69120d609db2ac6e42d0716",
+                
                 "variables": {
                     "public_remarks": public_remarks or "",
                     "private_agent_remarks": private_remarks or ""
@@ -107,6 +110,7 @@ async def get_marketing_rule_violation_response(public_remarks, private_remarks,
         response = await client.responses.create(
             prompt={
                 "id": "pmpt_692458777bf08196abfd60b7c31d760e0eeb936b11d480f6",
+                
                 "variables": {
                     "public_remarks": public_remarks or "",
                     "private_agent_remarks": private_remarks or ""

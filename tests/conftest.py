@@ -71,8 +71,7 @@ def sample_data_item():
         "mlsnum": "ML12345",
         "mls_id": "TESTMLS",
         "Remarks": "Beautiful 3BR/2BA home with spacious backyard.",
-        "PrivateRemarks": "Seller motivated. Great neighborhood.",
-        "Directions": "Take Main St north, turn right on Oak Ave"
+        "PrivateRemarks": "Seller motivated. Great neighborhood."
     }
 
 
@@ -108,8 +107,7 @@ def sample_batch_request():
                 "mlsnum": f"ML{i:05d}",
                 "mls_id": "TESTMLS",
                 "Remarks": f"Test remarks {i}",
-                "PrivateRemarks": f"Private remarks {i}",
-                "Directions": ""
+                "PrivateRemarks": f"Private remarks {i}"
             }
             for i in range(5)
         ]

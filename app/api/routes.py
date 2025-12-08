@@ -49,9 +49,9 @@ async def check_compliance(compliance_request: ComplianceRequest, request: Reque
         for rule in compliance_request.AIViolationID:
             all_allowed_columns.update(RULE_REQUIRED_COLUMNS.get(rule.ID, []))
         
-        # Get fields from first data record (assuming all have same structure)
+        # Get fields from first data record (only non-empty fields to avoid default values)
         sample_record = compliance_request.Data[0]
-        data_fields = set(sample_record.model_dump().keys()) - {"mlsnum", "mls_id"}
+        data_fields = set(sample_record.model_dump(exclude_unset=True).keys()) - {"mlsnum", "mls_id"}
         
         # Check for extra fields not in registry
         extra_fields = data_fields - all_allowed_columns

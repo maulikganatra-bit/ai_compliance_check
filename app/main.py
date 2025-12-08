@@ -17,6 +17,10 @@ from app.core.rate_limiter import get_rate_limiter
 from app.core.config import MAX_CONNECTIONS, MAX_KEEPALIVE_CONNECTIONS, API_TIMEOUT
 import httpx
 from openai import AsyncOpenAI
+from dotenv import load_dotenv
+load_dotenv()
+
+
 
 # Global OpenAI client with connection pooling
 # This client is shared across all requests for efficient connection reuse
