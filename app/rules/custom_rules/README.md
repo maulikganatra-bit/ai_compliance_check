@@ -73,10 +73,11 @@ async def custom_rule_checker(public_remarks, private_remarks, directions=None):
 ## How It Works
 
 The system automatically:
-1. Checks for custom rule file `{mls_id}_{rule_id}.py` in this directory
-2. Dynamically imports the module if found
-3. Uses the first async function defined in the module
-4. Falls back to default rule if no custom rule exists
+1. Derives a custom rule filename from the incoming record's `mlsId` (e.g. `TESTMLS`) and the `rule_id`, producing `{MLS_ID}_{RULE_ID}.py` (uppercase). For example, `TESTMLS_FAIR.py`.
+2. Checks for that custom rule file in this directory
+3. Dynamically imports the module if found
+4. Uses the first async function defined in the module
+5. Falls back to default rule if no custom rule exists
 
 ## Priority Order
 

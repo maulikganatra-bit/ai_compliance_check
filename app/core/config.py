@@ -13,6 +13,7 @@ Modify these values to tune performance based on your OpenAI tier and requiremen
 import os
 from pathlib import Path
 from dotenv import load_dotenv
+from langfuse import Langfuse
 
 # ============================================================================
 # OPENAI API KEY CONFIGURATION
@@ -54,6 +55,154 @@ def get_openai_api_key() -> str:
 
 # Load and validate API key on module import
 OPENAI_API_KEY = get_openai_api_key()
+
+
+# ============================================================================
+# LANGFUSE CLIENT CONFIGURATION
+# ============================================================================
+# Load Langfuse credentials from .env file if it exists, otherwise use env vars
+
+def get_langfuse_client() -> Langfuse:
+    """
+    Create and return a Langfuse client using env-based credentials.
+
+    Priority:
+    1. If .env file exists, load from there
+    2. Otherwise, use OS environment variables
+
+    Required:
+        - LANGFUSE_PUBLIC_KEY
+        - LANGFUSE_SECRET_KEY
+
+    Optional:
+        - LANGFUSE_HOST (defaults to Langfuse Cloud)
+
+    Returns:
+        Langfuse: Initialized Langfuse client
+
+    Raises:
+        ValueError: If required credentials are missing
+    """
+    # Check if .env file exists in project root
+    env_file = Path(__file__).parent.parent.parent / ".env"
+
+    if env_file.exists():
+        # Load from .env file
+        load_dotenv(env_file)
+
+    public_key = os.getenv("LANGFUSE_PUBLIC_KEY")
+    secret_key = os.getenv("LANGFUSE_SECRET_KEY")
+    host = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com")
+
+    missing = []
+    if not public_key:
+        missing.append("LANGFUSE_PUBLIC_KEY")
+    if not secret_key:
+        missing.append("LANGFUSE_SECRET_KEY")
+
+    if missing:
+        raise ValueError(
+            "Langfuse credentials missing. Please set the following:\n"
+            + "\n".join(f"  - {key}" for key in missing)
+            + "\n\nLocations:\n"
+            "  1. .env file in project root, OR\n"
+            "  2. System environment variables\n\n"
+            "Example:\n"
+            "  LANGFUSE_PUBLIC_KEY=pk-lf-...\n"
+            "  LANGFUSE_SECRET_KEY=sk-lf-...\n"
+            "  LANGFUSE_HOST=https://cloud.langfuse.com"
+        )
+
+    return Langfuse(
+        public_key=public_key,
+        secret_key=secret_key,
+        host=host,
+    )
+
+# Load and validate Langfuse client on module import
+LANGFUSE_CLIENT = get_langfuse_client()
+
+
+# ============================================================================
+# JWT AUTHENTICATION SETTINGS
+# ============================================================================
+# JWT token configuration for authentication
+
+def get_jwt_secret_key() -> str:
+    """Get JWT secret key from .env file or environment variable.
+    
+    Priority:
+    1. If .env file exists, load from there
+    2. Otherwise, use OS environment variable
+    3. If not found, generate a secure random key for development
+    
+    Returns:
+        str: JWT secret key
+    """
+    # Check if .env file exists in project root
+    env_file = Path(__file__).parent.parent.parent / ".env"
+    
+    if env_file.exists():
+        load_dotenv(env_file)
+    
+    # Get secret key from environment
+    secret_key = os.getenv("JWT_SECRET_KEY")
+    
+    if not secret_key:
+        # Generate a secure random key for development
+        import secrets
+        secret_key = secrets.token_urlsafe(32)
+        print("WARNING: JWT_SECRET_KEY not found in environment. Using random key.")
+        print(f"Generated key: {secret_key}")
+        print("Please add to .env file: JWT_SECRET_KEY={secret_key}")
+    
+    return secret_key
+
+JWT_SECRET_KEY = get_jwt_secret_key()
+JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
+REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
+
+# CORS settings for frontend access
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
+# ============================================================================
+# API KEY AUTHENTICATION (Service-to-Service)
+# ============================================================================
+# API key for automated services (SQL stored procedures, cron jobs, etc.)
+
+def get_service_api_key() -> str:
+    """Get service API key from .env file or environment variable.
+    
+    Returns:
+        str: Service API key for automated authentication
+        
+    Raises:
+        ValueError: If SERVICE_API_KEY is not found in environment
+    """
+    # Check if .env file exists in project root
+    env_file = Path(__file__).parent.parent.parent / ".env"
+    
+    if env_file.exists():
+        load_dotenv(env_file)
+    
+    # Get API key from environment
+    api_key = os.getenv("SERVICE_API_KEY")
+    
+    if not api_key:
+        raise ValueError(
+            "SERVICE_API_KEY not found. Please set it in:\n"
+            "  1. .env file in project root, OR\n"
+            "  2. System environment variable\n\n"
+            "Generate a secure key:\n"
+            "  python -c \"import secrets; print('sk-service-' + secrets.token_urlsafe(32))\"\n\n"
+            "Then add to .env:\n"
+            "  SERVICE_API_KEY=sk-service-your-generated-key-here"
+        )
+    
+    return api_key
+
+SERVICE_API_KEY = get_service_api_key()
 
 # ============================================================================
 # OPENAI TOKEN SETTINGS

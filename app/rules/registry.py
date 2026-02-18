@@ -26,7 +26,8 @@ from app.core.logger import rules_logger
 from app.rules.base import (
     get_fair_housing_violation_response,
     get_comp_violation_response,
-    get_marketing_rule_violation_response
+    get_marketing_rule_violation_response,
+    get_prohibited_words_rule_violation_response,
 )
 
 # ============================================================================
@@ -39,6 +40,7 @@ DEFAULT_RULE_FUNCTIONS = {
     "FAIR": get_fair_housing_violation_response,   # Fair Housing compliance
     "COMP": get_comp_violation_response,           # Compensation disclosure
     "PROMO": get_marketing_rule_violation_response, # Marketing/promotional rules
+    "PRWD": get_prohibited_words_rule_violation_response, # Prohibited words rule
 }
 
 # ============================================================================
@@ -46,12 +48,49 @@ DEFAULT_RULE_FUNCTIONS = {
 # ============================================================================
 # Defines which columns are allowed for each rule type
 # Used to validate incoming requests (prevents invalid column names)
-# Note: mlsnum and mls_id are mandatory and excluded from this registry
+# Note: mlsnum and mlsId are mandatory and excluded from this registry
 
 RULE_REQUIRED_COLUMNS = {
-    "FAIR": ["Remarks", "PrivateRemarks", "Directions"],
-    "COMP": ["Remarks", "PrivateRemarks", "Directions"],
-    "PROMO": ["Remarks", "PrivateRemarks", "Directions"],
+    "FAIR": [
+        "Remarks",
+        "PrivateRemarks",
+        "Directions",
+        "ShowingInstructions",
+        "ConfidentialRemarks",
+        "SupplementRemarks",
+        "Concessions",
+        "SaleFactors",
+    ],
+    "COMP": [
+        "Remarks",
+        "PrivateRemarks",
+        "Directions",
+        "ShowingInstructions",
+        "ConfidentialRemarks",
+        "SupplementRemarks",
+        "Concessions",
+        "SaleFactors",
+    ],
+    "PROMO": [
+        "Remarks",
+        "PrivateRemarks",
+        "Directions",
+        "ShowingInstructions",
+        "ConfidentialRemarks",
+        "SupplementRemarks",
+        "Concessions",
+        "SaleFactors",
+    ],
+    "PRWD": [
+        "Remarks",
+        "PrivateRemarks",
+        "Directions",
+        "ShowingInstructions",
+        "ConfidentialRemarks",
+        "SupplementRemarks",
+        "Concessions",
+        "SaleFactors",
+    ],
 }
 
 def load_custom_rule(mls_id: str, rule_id: str):
@@ -121,7 +160,7 @@ def get_rule_function(mls_id: str, rule_id: str):
     This allows MLS-specific customization while maintaining default behavior.
     
     Args:
-        mls_id: MLS system identifier from DataItem.mls_id
+        mls_id: MLS system identifier from DataItem.mlsId
         rule_id: Rule identifier from RuleConfig.ID
         
     Returns:
