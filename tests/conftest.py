@@ -22,10 +22,17 @@ os.environ.setdefault("JWT_ALGORITHM", "HS256")
 os.environ.setdefault("ACCESS_TOKEN_EXPIRE_MINUTES", "15")
 os.environ.setdefault("REFRESH_TOKEN_EXPIRE_DAYS", "7")
 os.environ.setdefault("FRONTEND_URL", "http://localhost:3000")
+os.environ.setdefault("LANGFUSE_PUBLIC_KEY", "pk-lf-test-key-for-pytest")
+os.environ.setdefault("LANGFUSE_SECRET_KEY", "sk-lf-test-key-for-pytest")
+os.environ.setdefault("LANGFUSE_HOST", "https://cloud.langfuse.com")
 
-# Mock OpenAI client at module level before importing app
+# Mock Langfuse client at module level before importing app
 import sys
 from unittest.mock import AsyncMock
+
+sys.modules['langfuse'] = MagicMock()
+
+# Mock OpenAI client at module level before importing app
 
 # Create a mock response object
 def create_mock_response():
@@ -60,9 +67,31 @@ class MockAsyncOpenAI:
         # Create an async mock for the create method that returns the mock response
         self.responses.create = AsyncMock(side_effect=lambda **kwargs: create_mock_response())
 
+# Create real exception classes so they can be used in except clauses
+class _MockAPIError(Exception):
+    def __init__(self, message="API error", request=None, body=None):
+        super().__init__(message)
+        self.request = request
+        self.body = body
+        self.status_code = None
+
+class _MockRateLimitError(_MockAPIError):
+    def __init__(self, message="Rate limit exceeded", request=None, body=None, response=None):
+        super().__init__(message, request, body)
+        self.status_code = 429
+
+class _MockAPITimeoutError(Exception):
+    def __init__(self, request=None):
+        super().__init__("Request timed out")
+        self.request = request
+
 # Patch the openai module before importing app
-sys.modules['openai'] = MagicMock()
-sys.modules['openai'].AsyncOpenAI = MockAsyncOpenAI
+_mock_openai = MagicMock()
+_mock_openai.AsyncOpenAI = MockAsyncOpenAI
+_mock_openai.APIError = _MockAPIError
+_mock_openai.RateLimitError = _MockRateLimitError
+_mock_openai.APITimeoutError = _MockAPITimeoutError
+sys.modules['openai'] = _mock_openai
 
 from fastapi.testclient import TestClient
 from app.main import app
@@ -118,12 +147,30 @@ def event_loop():
 @pytest.fixture(autouse=True)
 def reset_limiter():
     """Reset rate limiter before each test.
-    
+
     Ensures clean state between tests.
     """
     reset_rate_limiter()
     yield
     reset_rate_limiter()
+
+
+@pytest.fixture(autouse=True)
+def _mock_external_services():
+    """Ensure no real API calls are made to any external service during tests.
+
+    This fixture patches:
+    - LANGFUSE_CLIENT everywhere (config + prompt_cache) → prevents Langfuse API calls
+    - httpx.AsyncClient in app.main → prevents real HTTP connection pool creation
+    """
+    mock_langfuse = MagicMock()
+    mock_httpx_client = MagicMock()
+    # Give the mock httpx client an async aclose() so lifespan shutdown works
+    mock_httpx_client.aclose = AsyncMock()
+    with patch("app.core.config.LANGFUSE_CLIENT", mock_langfuse), \
+         patch("app.core.prompt_cache.LANGFUSE_CLIENT", mock_langfuse), \
+         patch("app.main.httpx.AsyncClient", return_value=mock_httpx_client):
+        yield
 
 
 @pytest.fixture
@@ -159,6 +206,35 @@ def client_no_auth():
     """
     with TestClient(app) as test_client:
         yield test_client
+
+
+@pytest.fixture
+def mock_prompt_data():
+    """Mock prompt_data dict matching the structure expected by rule functions.
+
+    Rule functions do ``prompt_data['prompt']`` and ``prompt_data.get('config', {})``.
+    The prompt template is a minimal Jinja2 template that renders without error.
+    """
+    return {
+        "prompt": (
+            "Check the following remarks for violations:\n"
+            "Public: {{ public_remarks }}\n"
+            "Private: {{ private_agent_remarks }}\n"
+            "Directions: {{ directions }}\n"
+            "Showing: {{ showing_instructions }}\n"
+            "Confidential: {{ confidential_remarks }}\n"
+            "Supplement: {{ supplement_remarks }}\n"
+            "Concessions: {{ concessions }}\n"
+            "Sale Factors: {{ sale_factors }}"
+        ),
+        "config": {
+            "model": "gpt-4o",
+            "temperature": "0.0",
+            "max_output_tokens": "6095",
+            "top_p": "1.0",
+        },
+        "version": "test-v1",
+    }
 
 
 @pytest.fixture
