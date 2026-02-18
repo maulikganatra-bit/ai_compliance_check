@@ -10,17 +10,20 @@ This module initializes the FastAPI application with:
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import router
+from app.api.auth_routes import router as auth_router
 from app.core.logger import app_logger
 from app.core.middleware import RequestIDMiddleware
 from app.core.rate_limiter import get_rate_limiter
-from app.core.config import MAX_CONNECTIONS, MAX_KEEPALIVE_CONNECTIONS, API_TIMEOUT
+from app.core.prompt_cache import get_prompt_cache_manager
+from app.core.config import MAX_CONNECTIONS, MAX_KEEPALIVE_CONNECTIONS, API_TIMEOUT, FRONTEND_URL
 import httpx
 from openai import AsyncOpenAI
 
 # Global OpenAI client with connection pooling
 # This client is shared across all requests for efficient connection reuse
-openai_client = None
+openai_client: AsyncOpenAI | None = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -39,6 +42,19 @@ async def lifespan(app: FastAPI):
     """
     # === STARTUP PHASE ===
     app_logger.info("FastAPI application starting up")
+
+    try:
+        app_logger.info("Initializing Langfuse prompt cache...")
+        prompt_cache = get_prompt_cache_manager()
+        await prompt_cache.initialize()
+
+        cache_stats = prompt_cache.get_cache_stats()
+        app_logger.info(f"{cache_stats}")
+        app_logger.info("Prompt cache initialized: " f"{cache_stats['total_prompts_cached']} prompts loaded")
+        app_logger.info(f"Cached prompts: {cache_stats['cache']}")
+
+    except Exception as e:
+        app_logger.error(f"Prompt cache initialization failed: {e}", exc_info=True,)
     
     # Initialize rate limiter - tracks token/request budgets from OpenAI headers
     rate_limiter = get_rate_limiter()
@@ -78,6 +94,15 @@ async def lifespan(app: FastAPI):
     
     # Shutdown: runs when the application is shutting down
     app_logger.info("FastAPI application shutting down")
+
+    try:
+        prompt_cache = get_prompt_cache_manager()
+        cache_stats = prompt_cache.get_cache_stats()
+        app_logger.info(
+            f"Final cache stats: {cache_stats['total_prompts_cached']} prompts cached"
+        )
+    except Exception as exc:
+        app_logger.error("Error during prompt cache shutdown", exc_info=True)
     
     # Close HTTP client
     if openai_client and hasattr(openai_client, 'http_client') and openai_client.http_client:
@@ -87,6 +112,7 @@ async def lifespan(app: FastAPI):
     # Log final rate limiter statistics
     limiter_stats = rate_limiter.get_stats()
     app_logger.info(f"Final rate limiter stats: {limiter_stats}")
+    app_logger.info("Application shutdown completed")
 
 # Create FastAPI application instance
 app = FastAPI(
@@ -96,9 +122,22 @@ app = FastAPI(
     lifespan=lifespan  # Attach lifespan manager for startup/shutdown
 )
 
+# Add CORS middleware for frontend access
+# This enables your frontend to make authenticated requests to the API
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins (DEVELOPMENT ONLY - change for production)
+    allow_credentials=True,  # Required for cookies (refresh tokens)
+    allow_methods=["*"],  # Allow all HTTP methods
+    allow_headers=["*"],  # Allow all headers
+)
+
 # Add request ID middleware - injects unique UUID into each request
 # This enables request tracing across logs and creates per-request log files
 app.add_middleware(RequestIDMiddleware)
+
+# Include authentication routes
+app.include_router(auth_router)
 
 # Include API routes from routes.py
 app.include_router(router)
@@ -107,5 +146,6 @@ app.include_router(router)
 @app.get("/")
 async def root():
     """Simple health check endpoint."""
+    prompt_cache = get_prompt_cache_manager()
     app_logger.debug("Health check endpoint called")
     return {"status": "ok", "message": "AI Compliance Checker API is running!"}
