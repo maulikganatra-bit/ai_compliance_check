@@ -120,7 +120,7 @@ class TestErrorHandling:
             "AIViolationID": [{"ID": "NONEXISTENT", "mlsId": "TESTMLS", "CheckColumns": "Remarks"}],
             "Data": [{"mlsnum": "88888", "mlsId": "TESTMLS", "Remarks": "Test"}]
         }
-        with patch("app.api.routes.get_prompt_cache_manager") as mock_cache:
+        with patch("app.api.routes.get_prompt_manager") as mock_cache:
             mock_manager = MagicMock()
             mock_manager.load_batch_prompts = AsyncMock(
                 return_value={("NONEXISTENT", "TESTMLS"): None}

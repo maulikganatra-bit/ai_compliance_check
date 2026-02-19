@@ -279,14 +279,4 @@ HIGH_BUDGET_THRESHOLD = 0.50    # >50% remaining → Use MAX_CONCURRENCY (200)
 MEDIUM_BUDGET_THRESHOLD = 0.20  # 20-50% remaining → Scale linearly
 LOW_BUDGET_THRESHOLD = 0.10     # <10% remaining → Use MIN_CONCURRENCY (10)
 
-# ============================================================================
-# PROMPT CACHE TTL SETTINGS
-# ============================================================================
-# Time-to-live for cached Langfuse prompts (in seconds).
-# After this duration, cached prompts are treated as stale and re-fetched
-# from Langfuse on the next access.  Set to 0 to disable TTL (cache forever).
-#
-# Default: 300 seconds (5 minutes) — balances freshness with performance.
-# Override via environment variable: PROMPT_CACHE_TTL_SECONDS=600
 
-PROMPT_CACHE_TTL_SECONDS = int(os.getenv("PROMPT_CACHE_TTL_SECONDS", "300"))

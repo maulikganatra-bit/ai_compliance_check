@@ -13,11 +13,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import router
 from app.api.auth_routes import router as auth_router
-from app.api.admin_routes import router as admin_router
 from app.core.logger import app_logger
 from app.core.middleware import RequestIDMiddleware
 from app.core.rate_limiter import get_rate_limiter
-from app.core.prompt_cache import get_prompt_cache_manager
+from app.core.prompt_cache import get_prompt_manager
 from app.core.config import MAX_CONNECTIONS, MAX_KEEPALIVE_CONNECTIONS, API_TIMEOUT, FRONTEND_URL
 import httpx
 from openai import AsyncOpenAI
@@ -45,10 +44,10 @@ async def lifespan(app: FastAPI):
     app_logger.info("FastAPI application starting up")
 
     try:
-        app_logger.info("Initializing Langfuse prompt cache...")
-        prompt_cache = get_prompt_cache_manager()
-        await prompt_cache.initialize()
-        app_logger.info("Prompt cache manager ready (prompts loaded on-demand per request)")
+        app_logger.info("Initializing Langfuse prompt manager...")
+        prompt_manager = get_prompt_manager()
+        await prompt_manager.initialize()
+        app_logger.info("Prompt manager ready (prompts fetched fresh from Langfuse per request)")
 
     except Exception as e:
         app_logger.error(f"Prompt cache initialization failed: {e}", exc_info=True,)
@@ -91,15 +90,6 @@ async def lifespan(app: FastAPI):
     
     # Shutdown: runs when the application is shutting down
     app_logger.info("FastAPI application shutting down")
-
-    try:
-        prompt_cache = get_prompt_cache_manager()
-        cache_stats = prompt_cache.get_cache_stats()
-        app_logger.info(
-            f"Final cache stats: {cache_stats['total_prompts_cached']} prompts cached"
-        )
-    except Exception as exc:
-        app_logger.error("Error during prompt cache shutdown", exc_info=True)
     
     # Close HTTP client
     if openai_client and hasattr(openai_client, 'http_client') and openai_client.http_client:
@@ -136,9 +126,6 @@ app.add_middleware(RequestIDMiddleware)
 # Include authentication routes
 app.include_router(auth_router)
 
-# Include admin cache management routes
-app.include_router(admin_router)
-
 # Include API routes from routes.py
 app.include_router(router)
 
@@ -146,6 +133,6 @@ app.include_router(router)
 @app.get("/")
 async def root():
     """Simple health check endpoint."""
-    prompt_cache = get_prompt_cache_manager()
+    prompt_manager = get_prompt_manager()
     app_logger.debug("Health check endpoint called")
     return {"status": "ok", "message": "AI Compliance Checker API is running!"}

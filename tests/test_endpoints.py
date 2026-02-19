@@ -66,7 +66,7 @@ class TestComplianceEndpoint:
             "AIViolationID": [{"ID": "NO_PROMPT_RULE", "mlsId": "TESTMLS", "CheckColumns": "Remarks"}],
             "Data": [{"mlsnum": "ML123", "mlsId": "TESTMLS", "Remarks": "test"}]
         }
-        with patch("app.api.routes.get_prompt_cache_manager") as mock_cache:
+        with patch("app.api.routes.get_prompt_manager") as mock_cache:
             mock_manager = MagicMock()
             mock_manager.load_batch_prompts = AsyncMock(
                 return_value={("NO_PROMPT_RULE", "TESTMLS"): None}

@@ -5,7 +5,7 @@ from app.rules.registry import get_rule_function
 from app.core.logger import api_logger
 from app.core.rate_limiter import get_rate_limiter
 from app.auth.dependencies import verify_authentication
-from app.core.prompt_cache import get_prompt_cache_manager
+from app.core.prompt_cache import get_prompt_manager
 from typing import Dict, Union, Any, Optional
 import asyncio
 import time
@@ -110,16 +110,16 @@ async def check_compliance(
 
     api_logger.info("Validation completed successfully")
 
-    # Pre-Load all the required prompts from cache with smart fallback
-    api_logger.info("Pre-loading prompts from cache...")
-    prompt_cache = get_prompt_cache_manager()
+    # Fetch all required prompts fresh from Langfuse
+    api_logger.info("Fetching prompts from Langfuse...")
+    prompt_manager = get_prompt_manager()
 
     # Get all unique (rule_id, mls_id) pairs
     rule_mls_pairs = list(mls_rules_map.keys())
 
     try:
-        # Load prompts in batch (this is very fast as they are cached)
-        prompts_map = await prompt_cache.load_batch_prompts(rule_mls_pairs)
+        # Fetch prompts concurrently from Langfuse (no cache — always fresh)
+        prompts_map = await prompt_manager.load_batch_prompts(rule_mls_pairs)
 
         # CRITICAL: Check for missing prompts and raise error
         # Since prompt_data is REQUIRED in rule functions, we must have prompts
@@ -152,7 +152,7 @@ async def check_compliance(
         api_logger.error(f"Error loading prompts: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to load prompts from cache: {str(e)}"
+            detail=f"Failed to load prompts from Langfuse: {str(e)}"
         )
 
     
@@ -410,13 +410,6 @@ async def process_all_records(request: ComplianceRequest, mls_rules_map: Dict, p
         f"Avg time/record: {avg_time_per_record:.2f}s, Throughput: {records_per_second:.1f} records/s"
     )
 
-    # Log full cache contents after request — shows what was newly cached this request
-    prompt_cache = get_prompt_cache_manager()
-    cache_stats = prompt_cache.get_cache_stats()
-    api_logger.info(f"Final cache stats: {cache_stats['total_prompts_cached']} prompts cached")
-    api_logger.info(f"Cached prompts: {cache_stats['cache']}")
-
-        
     # Log rate limiter stats
     limiter_stats = rate_limiter.get_stats()
     api_logger.info(f"Rate limiter stats: {limiter_stats}")
