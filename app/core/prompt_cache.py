@@ -314,9 +314,7 @@ class PromptCacheManager:
         cache_view: Dict[str, Any] = {}
         total_real = 0
         total_sentinel = 0
-        print("-"*60)
-        print(self._cache)
-        print("-"*60)
+
         for rule_id, mls_map in self._cache.items():
             real = [k for k, v in mls_map.items() if v is not _USE_DEFAULT]
             sentinel = [k for k, v in mls_map.items() if v is _USE_DEFAULT]
