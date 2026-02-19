@@ -365,7 +365,7 @@ class PromptCacheManager:
         new_version = result.get("version") if result else None
         if old_version and new_version and old_version != new_version:
             prompt_logger.info(
-                "PROMPT VERSION UPDATED via refresh: (%s, %s) — v%s → v%s",
+                "PROMPT VERSION UPDATED via refresh: (%s, %s) — v%s - v%s",
                 rule_key, mls_id, old_version, new_version,
             )
         elif old_version and new_version and old_version == new_version:
