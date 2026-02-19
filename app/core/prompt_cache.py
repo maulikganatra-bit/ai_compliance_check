@@ -322,22 +322,40 @@ class PromptCacheManager:
 
         Returns:
             { (rule_id, mls_id): prompt_data_or_None }
+            
+        NOTE: Returns the snapshot of loaded prompts WITHOUT re-checking cache,
+              to prevent TTL race conditions where entries expire between load
+              and return.
         """
         api_logger.info(f"Batch-loading {len(rule_mls_pairs)} prompts")
         api_logger.info(f"Cache state: {self.get_cache_stats()['cache']}")
 
-        # Separate cache hits from misses
-        to_load = [
-            pair for pair in rule_mls_pairs
-            if self._get_from_cache(*pair) is None
-        ]
+        # Track results to avoid re-checking cache (TTL race condition)
+        result = {}
+        to_load = []
 
+        # Phase 1: Identify cache hits and misses
+        for pair in rule_mls_pairs:
+            cached = self._get_from_cache(*pair)
+            if cached is not None:
+                result[pair] = cached  # Cache hit - store immediately
+            else:
+                to_load.append(pair)   # Cache miss - need to load
+
+        # Phase 2: Load missing prompts concurrently
         if to_load:
             api_logger.debug(f"Fetching {len(to_load)} prompts from Langfuse")
             tasks = [self._load_prompt(rule_id, mls_id) for rule_id, mls_id in to_load]
-            await asyncio.gather(*tasks, return_exceptions=True)
+            loaded_prompts = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Store loaded prompts in result (do NOT re-check cache)
+            for pair, prompt in zip(to_load, loaded_prompts):
+                if isinstance(prompt, dict):
+                    result[pair] = prompt
+                else:
+                    result[pair] = None
 
-        return {pair: self._get_from_cache(*pair) for pair in rule_mls_pairs}
+        return result
 
     async def refresh_prompt(self, rule_id: str, mls_id: str) -> Optional[Dict[str, Any]]:
         """Force-reload a specific prompt from Langfuse (bypasses cache).
