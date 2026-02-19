@@ -49,19 +49,17 @@ def _make_prompt_obj(text="Test prompt {public_remarks}", config=None, version="
 
 
 def _seed_cache(cache: PromptCacheManager, rule_id: str, mls_id: str, data: dict):
-    """Directly write into the internal nested cache, bypassing Langfuse."""
+    """Directly write into the internal nested cache (with timestamp), bypassing Langfuse."""
     rule_key = rule_id.upper()
-    if rule_key not in cache._cache:
-        cache._cache[rule_key] = {}
-    cache._cache[rule_key][mls_id] = data
+    cache._cache.setdefault(rule_key, {})[mls_id] = data
+    cache._cache_timestamps.setdefault(rule_key, {})[mls_id] = time.time()
 
 
 def _seed_sentinel(cache: PromptCacheManager, rule_id: str, mls_id: str):
-    """Directly write the USE_DEFAULT sentinel for (rule_id, mls_id)."""
+    """Directly write the USE_DEFAULT sentinel (with timestamp) for (rule_id, mls_id)."""
     rule_key = rule_id.upper()
-    if rule_key not in cache._cache:
-        cache._cache[rule_key] = {}
-    cache._cache[rule_key][mls_id] = _USE_DEFAULT
+    cache._cache.setdefault(rule_key, {})[mls_id] = _USE_DEFAULT
+    cache._cache_timestamps.setdefault(rule_key, {})[mls_id] = time.time()
 
 
 # ============================================================================
@@ -474,12 +472,10 @@ class TestLoadBatchPrompts:
 class TestInitialize:
 
     @pytest.mark.asyncio
-    async def test_loads_default_prompts_for_all_rules(self, clean_cache, mock_langfuse):
-        with patch("app.core.prompt_cache.DEFAULT_RULE_FUNCTIONS", {"FAIR": Mock(), "COMP": Mock()}):
-            await clean_cache.initialize()
-
-        assert "default" in clean_cache._cache.get("FAIR", {})
-        assert "default" in clean_cache._cache.get("COMP", {})
+    async def test_initialize_validates_langfuse_client(self, clean_cache, mock_langfuse):
+        await clean_cache.initialize()
+        # Cache is empty — no startup pre-warming; prompts load on-demand
+        assert clean_cache._cache == {}
 
     @pytest.mark.asyncio
     async def test_raises_when_langfuse_client_is_none(self, clean_cache):
@@ -489,26 +485,22 @@ class TestInitialize:
 
     @pytest.mark.asyncio
     async def test_double_initialize_is_skipped(self, clean_cache, mock_langfuse):
-        with patch("app.core.prompt_cache.DEFAULT_RULE_FUNCTIONS", {"FAIR": Mock()}):
-            await clean_cache.initialize()
-            first_call_count = mock_langfuse.get_prompt.call_count
+        await clean_cache.initialize()
 
-            # Manually add an extra entry to verify it survives the second init
-            _seed_cache(clean_cache, "EXTRA", "default", {"prompt": "extra"})
+        # Manually add an entry to verify it survives the second init
+        _seed_cache(clean_cache, "EXTRA", "default", {"prompt": "extra"})
 
-            await clean_cache.initialize()  # should be a no-op
+        await clean_cache.initialize()  # should be a no-op
 
-        assert mock_langfuse.get_prompt.call_count == first_call_count
         assert "EXTRA" in clean_cache._cache
 
     @pytest.mark.asyncio
-    async def test_langfuse_failure_during_init_does_not_crash(self, clean_cache, langfuse_404):
-        """A 404 from Langfuse during warm-up should not raise — just leave cache empty."""
-        with patch("app.core.prompt_cache.DEFAULT_RULE_FUNCTIONS", {"FAIR": Mock()}):
-            await clean_cache.initialize()  # must not raise
+    async def test_initialize_succeeds_even_with_langfuse_issues(self, clean_cache, langfuse_404):
+        """initialize() only validates Langfuse client, does not fetch prompts."""
+        await clean_cache.initialize()  # must not raise
 
-        # Cache is empty because all Langfuse calls failed
-        assert clean_cache._cache.get("FAIR", {}).get("default") is None
+        # Cache is empty — prompts load on-demand
+        assert clean_cache._cache == {}
 
 
 # ============================================================================
@@ -780,3 +772,159 @@ class TestPerformance:
         elapsed = time.perf_counter() - start
 
         assert elapsed < 0.01, f"Sentinel resolutions too slow: {elapsed:.4f}s"
+
+
+# ============================================================================
+# Test: TTL-based cache expiry
+# ============================================================================
+
+class TestTTL:
+
+    def test_fresh_entry_is_cache_hit(self, clean_cache):
+        """Entries younger than TTL are returned normally."""
+        _seed_cache(clean_cache, "FAIR", "default", {"prompt": "fresh"})
+        result = clean_cache._get_from_cache("FAIR", "default")
+        assert result is not None
+        assert result["prompt"] == "fresh"
+
+    def test_expired_entry_is_cache_miss(self, clean_cache):
+        """Entries older than TTL are evicted and return None."""
+        _seed_cache(clean_cache, "FAIR", "default", {"prompt": "stale"})
+        # Manually backdate the timestamp past TTL
+        clean_cache._cache_timestamps["FAIR"]["default"] = time.time() - clean_cache._ttl - 1
+
+        result = clean_cache._get_from_cache("FAIR", "default")
+        assert result is None
+        # Entry should have been evicted
+        assert "default" not in clean_cache._cache.get("FAIR", {})
+
+    def test_expired_sentinel_is_cache_miss(self, clean_cache):
+        """Expired sentinels are evicted so custom lookup is retried on next access."""
+        _seed_cache(clean_cache, "FAIR", "default", {"prompt": "d"})
+        _seed_sentinel(clean_cache, "FAIR", "Miami")
+        # Backdate only the sentinel
+        clean_cache._cache_timestamps["FAIR"]["Miami"] = time.time() - clean_cache._ttl - 1
+
+        result = clean_cache._get_from_cache("FAIR", "Miami")
+        assert result is None
+
+    def test_ttl_zero_disables_expiry(self, clean_cache):
+        """When TTL is 0, entries never expire regardless of age."""
+        original_ttl = clean_cache._ttl
+        try:
+            clean_cache._ttl = 0
+            _seed_cache(clean_cache, "FAIR", "default", {"prompt": "forever"})
+            # Backdate far into the past
+            clean_cache._cache_timestamps["FAIR"]["default"] = 0
+
+            result = clean_cache._get_from_cache("FAIR", "default")
+            assert result is not None
+            assert result["prompt"] == "forever"
+        finally:
+            clean_cache._ttl = original_ttl
+
+    @pytest.mark.asyncio
+    async def test_expired_entry_triggers_langfuse_refetch(self, clean_cache, mock_langfuse):
+        """After TTL expiry, get_prompt re-fetches from Langfuse automatically."""
+        old = {
+            "prompt": "old", "name": "FAIR_violation",
+            "config": {}, "version": "1", "rule_id": "FAIR", "mls_id": "default",
+        }
+        _seed_cache(clean_cache, "FAIR", "default", old)
+        # Backdate past TTL
+        clean_cache._cache_timestamps["FAIR"]["default"] = time.time() - clean_cache._ttl - 1
+
+        mock_langfuse.get_prompt = Mock(return_value=_make_prompt_obj("updated text", version="2.0"))
+
+        result = await clean_cache.get_prompt("FAIR", "default")
+        assert result["prompt"] == "updated text"
+        assert result["version"] == "2.0"
+        mock_langfuse.get_prompt.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_expired_sentinel_retries_custom_lookup(self, clean_cache, mock_langfuse):
+        """When sentinel expires, custom-prompt discovery is retried in Langfuse."""
+        _seed_cache(clean_cache, "FAIR", "default", {
+            "prompt": "d", "name": "FAIR_violation",
+            "config": {}, "version": "1", "rule_id": "FAIR", "mls_id": "default",
+        })
+        _seed_sentinel(clean_cache, "FAIR", "Miami")
+        # Expire both sentinel and default so the full re-discovery runs
+        clean_cache._cache_timestamps["FAIR"]["Miami"] = time.time() - clean_cache._ttl - 1
+        clean_cache._cache_timestamps["FAIR"]["default"] = time.time() - clean_cache._ttl - 1
+
+        # Langfuse now has a custom prompt for Miami
+        mock_langfuse.get_prompt = Mock(return_value=_make_prompt_obj("now custom"))
+
+        result = await clean_cache.get_prompt("FAIR", "Miami")
+        assert result["name"] == "FAIR_Miami_violation"
+
+    def test_stats_include_ttl_seconds(self, clean_cache):
+        """get_cache_stats must include the configured TTL value."""
+        stats = clean_cache.get_cache_stats()
+        assert "ttl_seconds" in stats
+        assert stats["ttl_seconds"] == clean_cache._ttl
+
+    @pytest.mark.asyncio
+    async def test_refresh_prompt_resets_ttl(self, clean_cache, mock_langfuse):
+        """After refresh_prompt, the entry gets a fresh timestamp."""
+        _seed_cache(clean_cache, "FAIR", "default", {"prompt": "old", "name": "FAIR_violation", "config": {}, "version": "1", "rule_id": "FAIR", "mls_id": "default"})
+        # Backdate
+        clean_cache._cache_timestamps["FAIR"]["default"] = time.time() - clean_cache._ttl - 1
+
+        mock_langfuse.get_prompt = Mock(return_value=_make_prompt_obj("refreshed"))
+        await clean_cache.refresh_prompt("FAIR", "default")
+
+        # Should now be fresh
+        result = clean_cache._get_from_cache("FAIR", "default")
+        assert result is not None
+        assert result["prompt"] == "refreshed"
+
+
+# ============================================================================
+# Test: refresh_rule / refresh_all_prompts
+# ============================================================================
+
+class TestRefreshBulk:
+
+    @pytest.mark.asyncio
+    async def test_refresh_rule_reloads_all_mls_entries(self, clean_cache, mock_langfuse):
+        """refresh_rule reloads every MLS entry under a specific rule."""
+        _seed_cache(clean_cache, "FAIR", "default", {"prompt": "d"})
+        _seed_cache(clean_cache, "FAIR", "Miami", {"prompt": "m"})
+        _seed_sentinel(clean_cache, "FAIR", "UnknownMLS")
+
+        mock_langfuse.get_prompt = Mock(return_value=_make_prompt_obj("reloaded"))
+
+        stats = await clean_cache.refresh_rule("FAIR")
+
+        assert "FAIR" in stats["cache"]
+        # All entries should have been reloaded from Langfuse
+        mock_langfuse.get_prompt.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_refresh_all_prompts_clears_and_reloads(self, clean_cache, mock_langfuse):
+        """refresh_all_prompts rebuilds the entire cache from Langfuse."""
+        _seed_cache(clean_cache, "FAIR", "default", {"prompt": "f"})
+        _seed_cache(clean_cache, "COMP", "default", {"prompt": "c"})
+
+        mock_langfuse.get_prompt = Mock(return_value=_make_prompt_obj("fresh"))
+
+        stats = await clean_cache.refresh_all_prompts()
+
+        assert stats["total_prompts_cached"] >= 2
+        mock_langfuse.get_prompt.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_refresh_rule_no_entries_is_noop(self, clean_cache, mock_langfuse):
+        """refresh_rule for a rule with no cached entries is a safe no-op."""
+        stats = await clean_cache.refresh_rule("NONEXISTENT")
+        assert stats["total_prompts_cached"] == 0
+        mock_langfuse.get_prompt.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_refresh_all_empty_cache_is_noop(self, clean_cache, mock_langfuse):
+        """refresh_all_prompts on an empty cache is a safe no-op."""
+        stats = await clean_cache.refresh_all_prompts()
+        assert stats["total_prompts_cached"] == 0
+        mock_langfuse.get_prompt.assert_not_called()

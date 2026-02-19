@@ -15,6 +15,25 @@ from queue import Queue
 from logging.handlers import QueueHandler, QueueListener
 
 # ============================================================================
+# Log directory resolution
+# ============================================================================
+# In Docker: volume mount maps host folder → /logs inside the container
+# Locally:   Use ./logs relative to project root
+
+def _resolve_log_dir() -> Path:
+    """Return the log directory, preferring /logs (Docker mount) then ./logs (local dev)."""
+    docker_path = Path("/logs")
+    if docker_path.exists():
+        return docker_path
+    # Local dev: project_root/logs
+    local_path = Path(__file__).parent.parent.parent / "logs"
+    local_path.mkdir(parents=True, exist_ok=True)
+    return local_path
+
+
+LOG_DIR = _resolve_log_dir()
+
+# ============================================================================
 # Request ID Filter
 # ============================================================================
 
@@ -114,7 +133,7 @@ def setup_logger(name: str, level: int = logging.INFO) -> logging.Logger:
     # ------------------------------------------------------------------------
     # Per-request file handler (host filesystem)
     # ------------------------------------------------------------------------
-    file_handler = PerRequestFileHandler(Path("/logs"))
+    file_handler = PerRequestFileHandler(LOG_DIR)
     file_handler.setLevel(level)
     file_handler.setFormatter(logging.Formatter(
         '[%(asctime)s] %(name)s %(levelname)s '
@@ -149,3 +168,51 @@ def setup_logger(name: str, level: int = logging.INFO) -> logging.Logger:
 api_logger = setup_logger("api.routes", logging.DEBUG)
 rules_logger = setup_logger("api.rules", logging.DEBUG)
 app_logger = setup_logger("api.main", logging.DEBUG)
+
+
+# ============================================================================
+# Dedicated prompt-update logger
+# ============================================================================
+# Writes ONLY prompt lifecycle events (load, TTL expiry, version change,
+# refresh) to a single rotating file:  /logs/prompt_updates.log
+#
+# This makes it trivial to monitor prompt activity without grepping
+# through hundreds of per-request log files:
+#   tail -f /logs/prompt_updates.log            (live monitoring)
+#   grep "VERSION UPDATED" /logs/prompt_updates.log  (find changes)
+
+def _create_prompt_update_logger() -> logging.Logger:
+    """Create a logger that writes prompt events to a dedicated global file."""
+    from logging.handlers import RotatingFileHandler
+
+    logger = logging.getLogger("api.prompt_updates")
+    logger.setLevel(logging.INFO)
+
+    if logger.handlers:
+        return logger
+
+    file_handler = RotatingFileHandler(
+        LOG_DIR / "prompt_updates.log",
+        maxBytes=5 * 1024 * 1024,   # 5 MB per file
+        backupCount=3,               # Keep 3 rotated backups
+    )
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(logging.Formatter(
+        '[%(asctime)s] %(levelname)s: %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+    ))
+    logger.addHandler(file_handler)
+
+    # Also send to console via the shared queue
+    logger.addFilter(RequestIDFilter())
+    queue_handler = QueueHandler(_log_queue)
+    logger.addHandler(queue_handler)
+
+    return logger
+
+
+try:
+    prompt_logger = _create_prompt_update_logger()
+except Exception:
+    # Fallback: if log directory is not writable, reuse api_logger
+    prompt_logger = api_logger

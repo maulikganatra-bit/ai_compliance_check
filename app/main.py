@@ -13,6 +13,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import router
 from app.api.auth_routes import router as auth_router
+from app.api.admin_routes import router as admin_router
 from app.core.logger import app_logger
 from app.core.middleware import RequestIDMiddleware
 from app.core.rate_limiter import get_rate_limiter
@@ -47,11 +48,7 @@ async def lifespan(app: FastAPI):
         app_logger.info("Initializing Langfuse prompt cache...")
         prompt_cache = get_prompt_cache_manager()
         await prompt_cache.initialize()
-
-        cache_stats = prompt_cache.get_cache_stats()
-        app_logger.info(f"{cache_stats}")
-        app_logger.info("Prompt cache initialized: " f"{cache_stats['total_prompts_cached']} prompts loaded")
-        app_logger.info(f"Cached prompts: {cache_stats['cache']}")
+        app_logger.info("Prompt cache manager ready (prompts loaded on-demand per request)")
 
     except Exception as e:
         app_logger.error(f"Prompt cache initialization failed: {e}", exc_info=True,)
@@ -138,6 +135,9 @@ app.add_middleware(RequestIDMiddleware)
 
 # Include authentication routes
 app.include_router(auth_router)
+
+# Include admin cache management routes
+app.include_router(admin_router)
 
 # Include API routes from routes.py
 app.include_router(router)

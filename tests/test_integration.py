@@ -1,6 +1,7 @@
 """Integration tests for end-to-end API workflows."""
 
 import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 
 class TestEndToEndWorkflow:
@@ -103,16 +104,31 @@ class TestEndToEndWorkflow:
 class TestErrorHandling:
     """Tests for error handling in end-to-end workflows."""
     
-    def test_invalid_rule_id_error(self, client):
-        """Test that invalid rule IDs are caught early."""
+    def test_unknown_rule_accepted_dynamically(self, client):
+        """Test that any rule ID is accepted by the dynamic system."""
         request_data = {
             "AIViolationID": [{"ID": "NONEXISTENT", "mlsId": "TESTMLS", "CheckColumns": "Remarks"}],
             "Data": [{"mlsnum": "88888", "mlsId": "TESTMLS", "Remarks": "Test"}]
         }
-        
+        # With mocked Langfuse, all prompts appear to exist
         response = client.post("/check_compliance", json=request_data)
+        assert response.status_code == 200
+
+    def test_missing_prompt_returns_400(self, client):
+        """Test that a rule with no Langfuse prompt returns 400."""
+        request_data = {
+            "AIViolationID": [{"ID": "NONEXISTENT", "mlsId": "TESTMLS", "CheckColumns": "Remarks"}],
+            "Data": [{"mlsnum": "88888", "mlsId": "TESTMLS", "Remarks": "Test"}]
+        }
+        with patch("app.api.routes.get_prompt_cache_manager") as mock_cache:
+            mock_manager = MagicMock()
+            mock_manager.load_batch_prompts = AsyncMock(
+                return_value={("NONEXISTENT", "TESTMLS"): None}
+            )
+            mock_cache.return_value = mock_manager
+            response = client.post("/check_compliance", json=request_data)
         assert response.status_code == 400
-        assert "Invalid rule ID" in response.json()["detail"]
+        assert "Langfuse" in response.json()["detail"]
     
     def test_missing_required_columns_error(self, client):
         """Test that missing required columns are caught."""

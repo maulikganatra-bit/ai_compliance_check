@@ -39,9 +39,9 @@ _USE_DEFAULT = "USE_DEFAULT"
 
 from typing import Dict, Tuple, Optional, Any
 import asyncio
-from app.core.logger import api_logger
-from app.core.config import LANGFUSE_CLIENT
-from app.rules.registry import DEFAULT_RULE_FUNCTIONS
+import time
+from app.core.logger import api_logger, prompt_logger
+from app.core.config import LANGFUSE_CLIENT, PROMPT_CACHE_TTL_SECONDS
 
 
 # ---------------------------------------------------------------------------
@@ -96,9 +96,12 @@ class PromptCacheManager:
         if not self._initialized:
             # cache: { "FAIR": {"default": {...}, "MIAMI": {...}}, ... }
             self._cache: Dict[str, Dict[str, Any]] = {}
+            # Parallel structure tracking insertion timestamps for TTL
+            self._cache_timestamps: Dict[str, Dict[str, float]] = {}
+            self._ttl: float = PROMPT_CACHE_TTL_SECONDS
             self._lock = asyncio.Lock()
             PromptCacheManager._initialized = True
-            api_logger.info("PromptCacheManager initialised")
+            api_logger.info("PromptCacheManager initialised (TTL=%ds)", self._ttl)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -111,25 +114,61 @@ class PromptCacheManager:
         rule_id is normalised to uppercase for lookup.
         mls_id is used exactly as provided (case-sensitive).
 
+        TTL behaviour:
+          - If ``self._ttl > 0`` and the entry is older than ``_ttl``
+            seconds, it is evicted and ``None`` is returned (cache-miss).
+          - If ``self._ttl == 0``, entries never expire.
+
         Transparently resolves the _USE_DEFAULT sentinel: if the MLS key
         maps to _USE_DEFAULT, the default prompt for that rule is returned
         instead, so callers never see the sentinel.
         """
-        value = self._cache.get(rule_id.upper(), {}).get(mls_id)
+        rule_key = rule_id.upper()
+        value = self._cache.get(rule_key, {}).get(mls_id)
+        if value is None:
+            return None
+
+        # TTL check — evict stale entries
+        if self._ttl > 0:
+            cached_at = self._cache_timestamps.get(rule_key, {}).get(mls_id, 0)
+            age = time.time() - cached_at
+            if age > self._ttl:
+                stale_version = value.get("version") if isinstance(value, dict) else None
+                self._cache.get(rule_key, {}).pop(mls_id, None)
+                self._cache_timestamps.get(rule_key, {}).pop(mls_id, None)
+                prompt_logger.info(
+                    "TTL expired for [%s][%s] (v%s, age=%.0fs) — will re-fetch from Langfuse",
+                    rule_key, mls_id, stale_version, age,
+                )
+                return None
+
         if value is _USE_DEFAULT:
             # Sentinel hit: no custom prompt exists — resolve to default
-            return self._cache.get(rule_id.upper(), {}).get("default")
+            return self._get_from_cache(rule_key, "default")
         return value
 
     def _store_in_cache(self, rule_id: str, mls_id: str, prompt_data: Dict[str, Any]) -> None:
-        """Write prompt data into the nested cache.
+        """Write prompt data into the nested cache with a timestamp.
         rule_id is uppercased; mls_id is stored verbatim (case-sensitive).
+        Logs prominently when a new version replaces an older one.
         """
         rule_key = rule_id.upper()
-        if rule_key not in self._cache:
-            self._cache[rule_key] = {}
-        self._cache[rule_key][mls_id] = prompt_data
-        api_logger.debug(f"Cached prompt [{rule_key}][{mls_id}]")
+        new_version = prompt_data.get("version")
+        prompt_name = prompt_data.get("name", f"{rule_key}_{mls_id}")
+
+        # Detect version changes against the currently cached entry
+        existing = self._cache.get(rule_key, {}).get(mls_id)
+        if existing and isinstance(existing, dict):
+            old_version = existing.get("version")
+            if old_version is not None and old_version != new_version:
+                prompt_logger.info(
+                    "PROMPT VERSION UPDATED: '%s' [%s][%s] — v%s → v%s",
+                    prompt_name, rule_key, mls_id, old_version, new_version,
+                )
+
+        self._cache.setdefault(rule_key, {})[mls_id] = prompt_data
+        self._cache_timestamps.setdefault(rule_key, {})[mls_id] = time.time()
+        api_logger.debug(f"Cached prompt [{rule_key}][{mls_id}] v{new_version}")
 
     async def _fetch_from_langfuse(self, prompt_name: str) -> Optional[Any]:
         """Fetch a single prompt object from Langfuse (runs in executor)."""
@@ -181,17 +220,22 @@ class PromptCacheManager:
             if prompt_obj:
                 prompt_data = self._build_prompt_data(prompt_obj, custom_name, rule_id_upper, mls_id)
                 self._store_in_cache(rule_id_upper, mls_id, prompt_data)
-                api_logger.info(f"Loaded custom prompt '{custom_name}' for ({rule_id_upper}, {mls_id})")
+                prompt_logger.info(
+                    "Loaded custom prompt '%s' v%s for (%s, %s)",
+                    custom_name, prompt_data.get('version'), rule_id_upper, mls_id,
+                )
                 return prompt_data
 
             api_logger.debug(
                 f"No custom prompt found for ({rule_id_upper}, {mls_id}), "
                 f"falling back to default"
             )
-            # Store sentinel so future cache lookups for this MLS key resolve
-            # to default WITHOUT ever touching Langfuse again.
-            rule_bucket = self._cache.setdefault(rule_id_upper, {})
-            rule_bucket[mls_id] = _USE_DEFAULT
+            # Store sentinel (with timestamp) so future cache lookups for
+            # this MLS key resolve to default WITHOUT touching Langfuse again.
+            # The sentinel also gets a TTL so custom-prompt discovery is
+            # retried after the cache entry expires.
+            self._cache.setdefault(rule_id_upper, {})[mls_id] = _USE_DEFAULT
+            self._cache_timestamps.setdefault(rule_id_upper, {})[mls_id] = time.time()
             api_logger.debug(f"Stored USE_DEFAULT sentinel [{rule_id_upper}][{mls_id}]")
 
         # --- Step 2: try / reuse default ---
@@ -210,7 +254,10 @@ class PromptCacheManager:
             self._store_in_cache(rule_id_upper, "default", prompt_data)
             # Note: MLS key already has the _USE_DEFAULT sentinel stored above,
             # so _get_from_cache will resolve it to this default data automatically.
-            api_logger.info(f"Loaded default prompt '{default_name}' for rule '{rule_id_upper}'")
+            prompt_logger.info(
+                "Loaded default prompt '%s' v%s for rule '%s'",
+                default_name, prompt_data.get('version'), rule_id_upper,
+            )
             return prompt_data
 
         api_logger.error(
@@ -226,10 +273,12 @@ class PromptCacheManager:
 
     async def initialize(self) -> None:
         """
-        Warm the cache by preloading default prompts for all known rules.
+        Validate that the Langfuse client is available.
 
-        Called once at application startup.  Individual MLS-specific prompts
-        are loaded on-demand when a request arrives.
+        Called once at application startup.  All prompt loading happens
+        on-demand via ``load_batch_prompts()`` when the first request
+        arrives — the ``AIViolationID`` payload tells us exactly which
+        rule/MLS prompts are needed, so no static list is required.
         """
         async with self._lock:
             if self._cache:
@@ -239,15 +288,9 @@ class PromptCacheManager:
             if LANGFUSE_CLIENT is None:
                 raise RuntimeError("LANGFUSE_CLIENT is not initialised in config")
 
-            api_logger.info("Warming prompt cache with default prompts …")
-            rule_ids = list(DEFAULT_RULE_FUNCTIONS.keys())
-
-            tasks = [self._load_prompt(rule_id, "default") for rule_id in rule_ids]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            ok = sum(1 for r in results if isinstance(r, dict))
             api_logger.info(
-                f"Cache warm-up complete: {ok}/{len(rule_ids)} default prompts loaded"
+                "Prompt cache manager ready – prompts will be loaded "
+                "on-demand from each request's AIViolationID"
             )
 
     async def get_prompt(self, rule_id: str, mls_id: str) -> Optional[Dict[str, Any]]:
@@ -300,14 +343,76 @@ class PromptCacheManager:
         """Force-reload a specific prompt from Langfuse (bypasses cache).
         mls_id must be provided exactly as it was originally cached (case-sensitive).
         """
-        api_logger.info(f"Refreshing prompt: ({rule_id.upper()}, {mls_id})")
-
-        # Evict from cache (mls_id used verbatim)
         rule_key = rule_id.upper()
+
+        # Capture old version for the change log
+        old_entry = self._cache.get(rule_key, {}).get(mls_id)
+        old_version = old_entry.get("version") if isinstance(old_entry, dict) else None
+
+        prompt_logger.info(
+            "Refreshing prompt: (%s, %s) — current version: v%s",
+            rule_key, mls_id, old_version,
+        )
+
+        # Evict from cache + timestamp (mls_id used verbatim)
         if rule_key in self._cache:
             self._cache[rule_key].pop(mls_id, None)
+        if rule_key in self._cache_timestamps:
+            self._cache_timestamps[rule_key].pop(mls_id, None)
 
-        return await self._load_prompt(rule_id, mls_id)
+        result = await self._load_prompt(rule_id, mls_id)
+
+        new_version = result.get("version") if result else None
+        if old_version and new_version and old_version != new_version:
+            prompt_logger.info(
+                "PROMPT VERSION UPDATED via refresh: (%s, %s) — v%s → v%s",
+                rule_key, mls_id, old_version, new_version,
+            )
+        elif old_version and new_version and old_version == new_version:
+            prompt_logger.info(
+                "Prompt refreshed (no version change): (%s, %s) — v%s",
+                rule_key, mls_id, new_version,
+            )
+
+        return result
+
+    async def refresh_rule(self, rule_id: str) -> Dict[str, Any]:
+        """Force-reload ALL cached prompts for a specific rule."""
+        rule_key = rule_id.upper()
+        mls_ids = list(self._cache.get(rule_key, {}).keys())
+        api_logger.info(f"Refreshing {len(mls_ids)} entries for rule '{rule_key}'")
+        prompt_logger.info(f"Refreshing {len(mls_ids)} entries for rule '{rule_key}'")
+
+        # Evict everything under this rule
+        self._cache.pop(rule_key, None)
+        self._cache_timestamps.pop(rule_key, None)
+
+        # Re-load every (rule, mls) pair concurrently
+        if mls_ids:
+            tasks = [self._load_prompt(rule_key, mid) for mid in mls_ids]
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+        return self.get_cache_stats()
+
+    async def refresh_all_prompts(self) -> Dict[str, Any]:
+        """Force-reload every prompt currently in the cache from Langfuse."""
+        pairs = [
+            (rule_id, mls_id)
+            for rule_id, mls_map in self._cache.items()
+            for mls_id in mls_map
+        ]
+        api_logger.info(f"Refreshing all {len(pairs)} cached entries")
+        prompt_logger.info(f"Refreshing all {len(pairs)} cached entries")
+
+        # Wipe and rebuild
+        self._cache.clear()
+        self._cache_timestamps.clear()
+
+        if pairs:
+            tasks = [self._load_prompt(rid, mid) for rid, mid in pairs]
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+        return self.get_cache_stats()
 
     def get_cache_stats(self) -> Dict[str, Any]:
         """Return a snapshot of cache contents for observability."""
@@ -324,13 +429,16 @@ class PromptCacheManager:
         return {
             "total_prompts_cached": total_real,
             "total_sentinel_entries": total_sentinel,
+            "ttl_seconds": self._ttl,
             "cache": cache_view,
         }
 
     def clear_cache(self) -> None:
-        """Evict all cached prompts (useful for testing)."""
+        """Evict all cached prompts and timestamps."""
         api_logger.info("Clearing prompt cache")
+        prompt_logger.info("Clearing prompt cache")
         self._cache.clear()
+        self._cache_timestamps.clear()
 
 
 # ---------------------------------------------------------------------------

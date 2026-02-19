@@ -4,6 +4,7 @@ Tests the FastAPI routes and request/response validation.
 """
 
 import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi.testclient import TestClient
 
 
@@ -49,14 +50,31 @@ class TestComplianceEndpoint:
         response = client.post("/check_compliance", json=request)
         assert response.status_code == 400
     
-    def test_compliance_check_invalid_rule_id(self, client):
-        """Test that invalid rule ID returns 400 error."""
+    def test_compliance_check_unknown_rule_accepted_dynamically(self, client):
+        """Test that any rule ID is accepted (dynamic system — no whitelist)."""
         request = {
-            "AIViolationID": [{"ID": "INVALID_RULE", "mlsId": "TESTMLS", "CheckColumns": "Remarks"}],
+            "AIViolationID": [{"ID": "BRAND_NEW_RULE", "mlsId": "TESTMLS", "CheckColumns": "Remarks"}],
             "Data": [{"mlsnum": "ML123", "mlsId": "TESTMLS", "Remarks": "test"}]
         }
+        # With mocked Langfuse, all prompts appear to exist, so ANY rule ID works
         response = client.post("/check_compliance", json=request)
+        assert response.status_code == 200
+
+    def test_compliance_check_missing_prompt_returns_400(self, client):
+        """Test that a rule with no Langfuse prompt returns 400 error."""
+        request = {
+            "AIViolationID": [{"ID": "NO_PROMPT_RULE", "mlsId": "TESTMLS", "CheckColumns": "Remarks"}],
+            "Data": [{"mlsnum": "ML123", "mlsId": "TESTMLS", "Remarks": "test"}]
+        }
+        with patch("app.api.routes.get_prompt_cache_manager") as mock_cache:
+            mock_manager = MagicMock()
+            mock_manager.load_batch_prompts = AsyncMock(
+                return_value={("NO_PROMPT_RULE", "TESTMLS"): None}
+            )
+            mock_cache.return_value = mock_manager
+            response = client.post("/check_compliance", json=request)
         assert response.status_code == 400
+        assert "Langfuse" in response.json()["detail"]
     
     def test_compliance_check_invalid_check_columns(self, client):
         """Test that invalid CheckColumns returns 400 error."""

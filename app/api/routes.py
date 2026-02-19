@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Request, Depends
 from app.models.models import ComplianceRequest, APIResponse, DataItem
-from app.rules.registry import DEFAULT_RULE_FUNCTIONS, RULE_REQUIRED_COLUMNS
+from app.rules.registry import VALID_CHECK_COLUMNS
 from app.rules.registry import get_rule_function
 from app.core.logger import api_logger
 from app.core.rate_limiter import get_rate_limiter
@@ -44,14 +44,8 @@ async def check_compliance(
     
     # Validate rule IDs and build MLS-scoped rule lookup
     
-    # Validate each rule exists and has valid mlsId
+    # Validate each rule has a valid mlsId
     for rule in compliance_request.AIViolationID:
-        if rule.ID not in DEFAULT_RULE_FUNCTIONS:
-            api_logger.error(f"Invalid rule ID provided: {rule.ID}")
-            raise HTTPException(
-                status_code=400, 
-                detail=f"Invalid rule ID: {rule.ID}. Valid rules are: {list(DEFAULT_RULE_FUNCTIONS.keys())}"
-            )
         if not rule.mlsId:
             api_logger.error(f"Missing mlsId for rule {rule.ID}")
             raise HTTPException(
@@ -59,18 +53,17 @@ async def check_compliance(
                 detail=f"Rule {rule.ID} is missing required 'mlsId' field"
             )
     
-    # Validate CheckColumns against RULE_REQUIRED_COLUMNS
+    # Validate CheckColumns against VALID_CHECK_COLUMNS (universal for all rules)
     for rule in compliance_request.AIViolationID:
         rule_id = rule.ID
         check_columns = rule.columns_list()
-        allowed_columns = RULE_REQUIRED_COLUMNS.get(rule_id, [])
         
-        invalid_check_columns = [col for col in check_columns if col not in allowed_columns]
+        invalid_check_columns = [col for col in check_columns if col not in VALID_CHECK_COLUMNS]
         if invalid_check_columns:
             api_logger.error(f"Invalid CheckColumns for rule {rule_id}: {invalid_check_columns}")
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid CheckColumns for rule '{rule_id}': {invalid_check_columns}. Valid columns are: {allowed_columns}"
+                detail=f"Invalid CheckColumns for rule '{rule_id}': {invalid_check_columns}. Valid columns are: {VALID_CHECK_COLUMNS}"
             )
     
     # Build MLS-scoped rule lookup: (ID, mlsId) -> [columns]
@@ -137,11 +130,17 @@ async def check_compliance(
 
         if missing_prompts:
             api_logger.warning(f"Missing prompts for: {missing_prompts}")
-            # This should never happen if prompts are properly configured
+            missing_details = [
+                f"'{rule_id}' (mls_id='{mls_id}')" for rule_id, mls_id in missing_prompts
+            ]
             raise HTTPException(
-                status_code=500,
-                detail=f"Missing required prompts in Langfuse: {missing_prompts}. "
-                       f"Please ensure default prompts exist for all rules."
+                status_code=400,
+                detail=(
+                    f"No Langfuse prompts found for: {', '.join(missing_details)}. "
+                    f"To add a new rule, create a Langfuse prompt named "
+                    f"'<RULE_ID>_violation' (default) or '<MLS_ID>_<RULE_ID>_violation' "
+                    f"(MLS-specific)."
+                )
             )
         
         loaded_count = sum(1 for p in prompts_map.values() if p is not None)
