@@ -188,6 +188,10 @@ class PromptManager:
 
         Returns:
             { (rule_id, mls_id): prompt_data_or_None }
+            
+        NOTE: Returns the snapshot of loaded prompts WITHOUT re-checking cache,
+              to prevent TTL race conditions where entries expire between load
+              and return.
         """
         api_logger.info(f"Fetching {len(rule_mls_pairs)} prompts from Langfuse")
 
