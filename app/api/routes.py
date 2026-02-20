@@ -1,5 +1,7 @@
 from fastapi import APIRouter, HTTPException, Request, Depends
-from app.models.models import ComplianceRequest, APIResponse, DataItem
+from app.models.models import (
+    ComplianceRequest, APIResponse, DataItem, PromptValidationRequest
+)
 from app.rules.registry import VALID_CHECK_COLUMNS
 from app.rules.registry import get_rule_function
 from app.core.logger import api_logger
@@ -422,3 +424,162 @@ async def process_all_records(request: ComplianceRequest, mls_rules_map: Dict, p
         total_tokens=total_tokens,
         elapsed_time=elapsed
     )
+
+@router.post("/validate_prompt_response", response_model=APIResponse)
+async def validate_prompt_response(
+    validation_request: PromptValidationRequest,
+    request: Request,
+    auth_info: Dict[str, Union[str, object]] = Depends(verify_authentication)
+):
+    """
+    Validate compliance with a specific prompt version.
+    
+    Similar to /check_compliance but allows testing against a specific prompt version
+    instead of always using the latest. Useful for regression testing and validating
+    prompt changes.
+    
+    Args:
+        validation_request: PromptValidationRequest (same as ComplianceRequest + prompt_version)
+        request: FastAPI request object (provides request_id)
+        auth_info: Authentication info from verify_authentication
+        
+    Returns:
+        APIResponse with results (identical structure to /check_compliance)
+    """
+    request_id = request.state.request_id
+    
+    # Log request with appropriate authentication info
+    if auth_info["auth_type"] == "jwt":
+        api_logger.info(f"Prompt validation request from user '{auth_info['username']}' with {len(validation_request.Data)} records (prompt_version={validation_request.prompt_version})")
+    else:
+        api_logger.info(f"Prompt validation request from service '{auth_info['client']}' with {len(validation_request.Data)} records (prompt_version={validation_request.prompt_version})")
+    api_logger.debug(f"Rules to check: {[rule.ID for rule in validation_request.AIViolationID]}")
+    
+    if not validation_request.Data:
+        api_logger.warning("Empty data list received")
+        raise HTTPException(status_code=400, detail="Empty data list")
+    
+    # Validate rule IDs and build MLS-scoped rule lookup (same as check_compliance)
+    for rule in validation_request.AIViolationID:
+        if not rule.mlsId:
+            api_logger.error(f"Missing mlsId for rule {rule.ID}")
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Rule {rule.ID} is missing required 'mlsId' field"
+            )
+    
+    # Validate CheckColumns against VALID_CHECK_COLUMNS
+    for rule in validation_request.AIViolationID:
+        rule_id = rule.ID
+        check_columns = rule.columns_list()
+        
+        invalid_check_columns = [col for col in check_columns if col not in VALID_CHECK_COLUMNS]
+        if invalid_check_columns:
+            api_logger.error(f"Invalid CheckColumns for rule {rule_id}: {invalid_check_columns}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid CheckColumns for rule '{rule_id}': {invalid_check_columns}. Valid columns are: {VALID_CHECK_COLUMNS}"
+            )
+    
+    # Build MLS-scoped rule lookup
+    mls_rules_map = {}
+    for rule in validation_request.AIViolationID:
+        key = (rule.ID, rule.mlsId)
+        columns = set(rule.columns_list())
+        if key in mls_rules_map:
+            mls_rules_map[key].update(columns)
+            api_logger.debug(f"Merged duplicate rule entry for {key}: {mls_rules_map[key]}")
+        else:
+            mls_rules_map[key] = columns
+    
+    # Validate Data records
+    for idx, record in enumerate(validation_request.Data):
+        record_mls_id = record.mlsId
+        record_fields = set(record.model_dump(exclude_unset=True).keys()) - {"mlsnum", "mlsId"}
+        
+        applicable_rules = {k: v for k, v in mls_rules_map.items() if k[1] == record_mls_id}
+        
+        if not applicable_rules:
+            api_logger.error(f"Record {idx} (mlsnum={record.mlsnum}, mlsId={record_mls_id}) has no matching rules")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Record {idx} (mlsnum={record.mlsnum}, mlsId={record_mls_id}) has no matching rules. Available mlsIds in rules: {list(set(k[1] for k in mls_rules_map.keys()))}"
+            )
+        
+        required_columns = set()
+        for (rule_id, mls_id), columns in applicable_rules.items():
+            required_columns.update(columns)
+        
+        missing_columns = required_columns - record_fields
+        if missing_columns:
+            api_logger.error(f"Record {idx} (mlsnum={record.mlsnum}, mlsId={record_mls_id}) missing required columns: {missing_columns}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Record {idx} (mlsnum={record.mlsnum}, mlsId={record_mls_id}) missing required columns: {list(missing_columns)}. Required: {list(required_columns)}"
+            )
+
+    api_logger.info("Validation completed successfully")
+
+    # Fetch prompts, potentially using specific version if provided
+    api_logger.info(f"Fetching prompts from Langfuse (prompt_version={validation_request.prompt_version})...")
+    prompt_manager = get_prompt_manager()
+
+    rule_mls_pairs = list(mls_rules_map.keys())
+
+    try:
+        # If specific prompt version requested, use get_prompt_by_version for each pair
+        if validation_request.prompt_version is not None:
+            api_logger.info(f"Loading specific prompt version: {validation_request.prompt_version}")
+            prompts_map = {}
+            for rule_id, mls_id in rule_mls_pairs:
+                prompt_data = await prompt_manager.get_prompt_by_version(
+                    rule_id=rule_id,
+                    mls_id=mls_id,
+                    version=validation_request.prompt_version
+                )
+                prompts_map[(rule_id, mls_id)] = prompt_data
+        else:
+            # Otherwise use normal batch load (latest prompts)
+            prompts_map = await prompt_manager.load_batch_prompts(rule_mls_pairs)
+
+        # Check for missing prompts
+        missing_prompts = []
+        for pair, prompt in prompts_map.items():
+            if prompt is None:
+                missing_prompts.append(pair)
+
+        if missing_prompts:
+            api_logger.warning(f"Missing prompts for: {missing_prompts}")
+            missing_details = [
+                f"'{rule_id}' (mls_id='{mls_id}')" for rule_id, mls_id in missing_prompts
+            ]
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"No Langfuse prompts found for: {', '.join(missing_details)}. "
+                    f"To add a new rule, create a Langfuse prompt named "
+                    f"'<RULE_ID>_violation' (default) or '<MLS_ID>_<RULE_ID>_violation' "
+                    f"(MLS-specific)."
+                )
+            )
+        
+        loaded_count = sum(1 for p in prompts_map.values() if p is not None)
+        api_logger.info(f"Loaded {loaded_count}/{len(rule_mls_pairs)} prompts")
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        api_logger.error(f"Error loading prompts: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to load prompts from Langfuse: {str(e)}"
+        )
+
+    try:
+        # Process records using the validation request object (not compliance_request)
+        result = await process_all_records(validation_request, mls_rules_map=mls_rules_map, prompts_map=prompts_map, request_id=request_id)
+        api_logger.info(f"Prompt validation completed successfully. Total tokens: {result.total_tokens}, Elapsed time: {result.elapsed_time:.2f}s")
+        return result
+    except Exception as e:
+        api_logger.error(f"Error during prompt validation: {str(e)}", exc_info=True)
+        raise
