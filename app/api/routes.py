@@ -459,15 +459,6 @@ async def validate_prompt_response(
         api_logger.warning("Empty data list received")
         raise HTTPException(status_code=400, detail="Empty data list")
     
-    # Validate rule IDs and build MLS-scoped rule lookup (same as check_compliance)
-    for rule in validation_request.AIViolationID:
-        if not rule.mlsId:
-            api_logger.error(f"Missing mlsId for rule {rule.ID}")
-            raise HTTPException(
-                status_code=400, 
-                detail=f"Rule {rule.ID} is missing required 'mlsId' field"
-            )
-    
     # Validate CheckColumns against VALID_CHECK_COLUMNS
     for rule in validation_request.AIViolationID:
         rule_id = rule.ID

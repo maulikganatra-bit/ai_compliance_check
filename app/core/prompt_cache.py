@@ -200,57 +200,44 @@ class PromptManager:
         Returns:
             Dict with prompt data including version, or None if not found
         """
-        rule_id_upper = rule_id.upper()
-        is_default_request = mls_id == "default"
+        prompt_name = f"fp_{rule_id.upper()}_violation"
         
-        api_logger.info(f"Fetching prompt version {version}: ({rule_id_upper}, {mls_id})")
-        
-        # --- Step 1: try custom prompt with version (only when not explicitly asking for default) ---
-        if not is_default_request:
-            custom_name = _custom_prompt_name(rule_id_upper, mls_id)
-            try:
-                loop = asyncio.get_event_loop()
-                # Attempt to fetch specific version from Langfuse
-                prompt_obj = await loop.run_in_executor(
-                    None,
-                    lambda: LANGFUSE_CLIENT.get_prompt(custom_name, version=version)
-                )
-                if prompt_obj:
-                    prompt_data = self._build_prompt_data(prompt_obj, custom_name, rule_id_upper, mls_id)
-                    prompt_logger.info(
-                        "Loaded custom prompt '%s' v%s for (%s, %s)",
-                        custom_name, prompt_data.get('version'), rule_id_upper, mls_id,
-                    )
-                    return prompt_data
-            except Exception as e:
-                api_logger.debug(
-                    f"Failed to fetch custom prompt version for ({rule_id_upper}, {mls_id}): {e}"
-                )
+        api_logger.info(f"Fetching prompt version {version}: ({prompt_name}, {mls_id})")
 
-        # --- Step 2: try default prompt with version ---
-        default_name = _default_prompt_name(rule_id_upper)
         try:
             loop = asyncio.get_event_loop()
+            # Attempt to fetch specific version from Langfuse
             prompt_obj = await loop.run_in_executor(
                 None,
-                lambda: LANGFUSE_CLIENT.get_prompt(default_name, version=version)
+                lambda: LANGFUSE_CLIENT.get_prompt(prompt_name, version=version)
             )
-            if prompt_obj:
-                prompt_data = self._build_prompt_data(prompt_obj, default_name, rule_id_upper, "default")
-                prompt_logger.info(
-                    "Loaded default prompt '%s' v%s for rule '%s'",
-                    default_name, prompt_data.get('version'), rule_id_upper,
+            if not prompt_obj:
+                api_logger.error(
+                    "Prompt not found: '%s' (version=%s)",
+                    prompt_name, version
                 )
-                return prompt_data
-        except Exception as e:
-            api_logger.error(
-                f"Failed to fetch prompt version {version} for rule '{rule_id_upper}': {e}"
+                return None
+            
+            prompt_data = self._build_prompt_data(
+                prompt_obj,
+                prompt_name,
+                rule_id.upper(),
+                "default"
             )
 
-        api_logger.error(
-            f"No prompt version {version} found for rule '{rule_id_upper}' with mls '{mls_id}'"
-        )
-        return None
+            prompt_logger.info(
+                "Loaded prompt '%s' v%s",
+                prompt_name,
+                prompt_data.get("version")
+            )
+
+            return prompt_data
+        
+        except Exception as e:
+            api_logger.debug(
+                f"Failed to fetch custom prompt version for ({prompt_name}, {version}, {mls_id}): {e}"
+            )
+            return None
 
 
     async def load_batch_prompts(
