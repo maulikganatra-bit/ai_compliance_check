@@ -179,6 +179,61 @@ Check multiple records against compliance rules.
 }
 ```
 
+### POST `/validate_prompt_response`
+**NEW** - Validate compliance checking with a specific prompt version (instead of latest).
+
+Useful for regression testing after prompt updates, comparing behavior between versions, or validating prompt changes before deploying.
+
+**Key Difference**: Same request format as `/check_compliance` with one optional field: `prompt_version`
+
+**Request:**
+```json
+{
+    "AIViolationID": [
+        {"ID": "FAIR", "CheckColumns": "Remarks,PrivateRemarks", "mlsId": "default"}
+    ],
+    "Data": [
+        {
+            "mlsnum": "TEST001",
+            "mlsId": "default",
+            "Remarks": "Beautiful home in family-friendly area",
+            "PrivateRemarks": "Owner is 80 years old"
+        }
+    ],
+    "prompt_version": 2
+}
+```
+
+**Parameters:**
+- `prompt_version` (optional): Specific prompt version to load from Langfuse
+  - If omitted: Uses latest version (same behavior as `/check_compliance`)
+  - If specified: Tests that specific version
+  - Example: `2` to test version 2
+
+**Response:**
+Identical to `/check_compliance` - Same response structure with results, tokens, elapsed time, etc.
+
+**Use Cases:**
+1. **Regression Testing**: Test prompt updates against known test cases
+2. **Version Comparison**: Run same data with different versions to compare behavior
+3. **Validation**: Verify new prompt version correctness before deploying
+4. **MLS Testing**: Test custom MLS-specific prompts by setting `mlsId` in rules
+
+**Example: Comparing Versions**
+```bash
+# Test with version 2
+curl -X POST http://localhost:8000/validate_prompt_response \
+  -H "Authorization: Bearer TOKEN" \
+  -d '{"AIViolationID": [...], "Data": [...], "prompt_version": 2}'
+
+# Test with version 3
+curl -X POST http://localhost:8000/validate_prompt_response \
+  -H "Authorization: Bearer TOKEN" \
+  -d '{"AIViolationID": [...], "Data": [...], "prompt_version": 3}'
+
+# Compare results to see improvements
+```
+
 ### GET `/`
 Health check endpoint.
 

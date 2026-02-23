@@ -165,3 +165,106 @@ class TestRequestValidation:
         }
         response = client.post("/check_compliance", json=request)
         assert response.status_code == 422
+
+class TestPromptValidationEndpoint:
+    """Tests for /validate_prompt_response endpoint (prompt version testing)."""
+    
+    def test_validate_prompt_latest_version(self, client, sample_compliance_request):
+        """Test prompt validation with latest version (omit prompt_version)."""
+        response = client.post("/validate_prompt_response", json=sample_compliance_request)
+        assert response.status_code == 200
+        
+        data = response.json()
+        assert data["ok"] == 200
+        assert "results" in data
+        assert "total_tokens" in data
+        assert "elapsed_time" in data
+    
+    def test_validate_prompt_specific_version(self, client, sample_compliance_request):
+        """Test prompt validation with specific prompt version."""
+        request = sample_compliance_request.copy()
+        request["prompt_version"] = 1  # Test with version 1
+        
+        response = client.post("/validate_prompt_response", json=request)
+        # Response should be 200 (success) or 400 (version not found)
+        assert response.status_code in [200, 400]
+        
+        data = response.json()
+        assert "ok" in data
+        assert "results" in data or "error_message" in data
+    
+    def test_validate_prompt_empty_data(self, client):
+        """Test that empty Data list returns 400 error."""
+        request = {
+            "AIViolationID": [{"ID": "FAIR", "mlsId": "TESTMLS", "CheckColumns": "Remarks"}],
+            "Data": [],
+            "prompt_version": 1
+        }
+        response = client.post("/validate_prompt_response", json=request)
+        assert response.status_code == 400
+    
+    def test_validate_prompt_missing_mlsid(self, client):
+        """Test that missing mlsId in rules returns 400 error."""
+        request = {
+            "AIViolationID": [{"ID": "FAIR", "CheckColumns": "Remarks"}],  # Missing mlsId
+            "Data": [{"mlsnum": "ML123", "mlsId": "TESTMLS", "Remarks": "test"}],
+            "prompt_version": 1
+        }
+        response = client.post("/validate_prompt_response", json=request)
+        assert response.status_code == 400
+    
+    def test_validate_prompt_invalid_columns(self, client):
+        """Test that invalid CheckColumns return 400 error."""
+        request = {
+            "AIViolationID": [{"ID": "FAIR", "mlsId": "TESTMLS", "CheckColumns": "InvalidColumn"}],
+            "Data": [{"mlsnum": "ML123", "mlsId": "TESTMLS", "InvalidColumn": "test"}]
+        }
+        response = client.post("/validate_prompt_response", json=request)
+        assert response.status_code == 400
+    
+    def test_validate_prompt_without_prompt_version(self, client):
+        """Test that prompt_version can be omitted (uses latest)."""
+        request = {
+            "AIViolationID": [{"ID": "FAIR", "mlsId": "TESTMLS", "CheckColumns": "Remarks"}],
+            "Data": [{"mlsnum": "ML123", "mlsId": "TESTMLS", "Remarks": "Beautiful home"}]
+        }
+        response = client.post("/validate_prompt_response", json=request)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["ok"] == 200
+    
+    def test_validate_prompt_multiple_records(self, client):
+        """Test prompt validation with multiple records."""
+        request = {
+            "AIViolationID": [{"ID": "FAIR", "mlsId": "TESTMLS", "CheckColumns": "Remarks"}],
+            "Data": [
+                {"mlsnum": "ML001", "mlsId": "TESTMLS", "Remarks": "Test property 1"},
+                {"mlsnum": "ML002", "mlsId": "TESTMLS", "Remarks": "Test property 2"},
+                {"mlsnum": "ML003", "mlsId": "TESTMLS", "Remarks": "Test property 3"}
+            ],
+            "prompt_version": 1
+        }
+        response = client.post("/validate_prompt_response", json=request)
+        # Should process all records
+        assert response.status_code in [200, 400]
+    
+    def test_validate_prompt_response_format(self, client, sample_compliance_request):
+        """Test that response has correct structure (same as /check_compliance)."""
+        response = client.post("/validate_prompt_response", json=sample_compliance_request)
+        
+        if response.status_code == 200:
+            data = response.json()
+            assert "ok" in data
+            assert "results" in data
+            assert "request_id" in data
+            assert "error_message" in data
+            assert "total_tokens" in data
+            assert "elapsed_time" in data
+            
+            # Verify results structure
+            if data["results"]:
+                result = data["results"][0]
+                assert "mlsnum" in result
+                assert "mlsId" in result
+                assert "latency" in result
+                assert "tokens_used" in result
