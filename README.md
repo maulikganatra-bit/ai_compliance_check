@@ -74,7 +74,7 @@ ai_compliance_check/
 │   ├── main.py                        # FastAPI app initialization & lifespan
 │   ├── api/
 │   │   ├── __init__.py
-│   │   ├── routes.py                  # POST /check_compliance endpoint
+│   │   ├── routes.py                  # POST /check_compliance & /validate_prompt_response
 │   │   └── auth_routes.py             # Auth endpoints (login, register, refresh, logout, me)
 │   ├── auth/
 │   │   ├── __init__.py
@@ -93,7 +93,7 @@ ai_compliance_check/
 │   │   └── retry_handler.py           # Exponential backoff with jitter
 │   ├── models/
 │   │   ├── __init__.py
-│   │   └── models.py                  # Pydantic request/response schemas
+│   │   └── models.py                  # Pydantic schemas (ComplianceRequest, PromptValidationRequest, APIResponse)
 │   ├── rules/
 │   │   ├── __init__.py
 │   │   ├── base.py                    # Generic prompt-driven rule executor
@@ -117,6 +117,7 @@ ai_compliance_check/
 ├── test_data/                         # Sample request payloads
 │   ├── sample_request_minimal.json
 │   ├── sample_request_small.json
+│   ├── prompt_validation_example.json # Example for /validate_prompt_response
 │   ├── test.json
 │   └── test_ip.json
 ├── logs/                              # Auto-generated per-request log files
@@ -372,6 +373,52 @@ curl http://localhost:8000/
 - Duplicate `(ID, mlsId)` rule entries are merged (column union).
 - The `mlsIds` field name is accepted as a typo alias for `mlsId`.
 
+### `POST /validate_prompt_response` - Prompt Version Testing
+
+**Requires authentication** (JWT or API Key).
+
+Identical to `/check_compliance` but allows testing against a **specific Langfuse prompt version** instead of always using the latest. Useful for regression testing prompt changes before promoting them to production.
+
+**Request:**
+```json
+{
+    "AIViolationID": [
+        {
+            "ID": "FAIR",
+            "mlsId": "default",
+            "CheckColumns": "Remarks,PrivateRemarks"
+        }
+    ],
+    "Data": [
+        {
+            "mlsnum": "TESTVAL001",
+            "mlsId": "default",
+            "Remarks": "Beautiful home in a family-friendly neighborhood",
+            "PrivateRemarks": "Owned by senior couple with excellent maintenance record"
+        }
+    ],
+    "prompt_version": 2
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `prompt_version` | `int` or `null` | Specific Langfuse prompt version to use. Omit or set to `null` to use the latest version. |
+
+**Behavior:**
+- When `prompt_version` is provided: fetches that exact version using the `fp_{RULE_ID}_violation` naming convention.
+- When `prompt_version` is omitted or `null`: falls back to the standard latest-prompt flow (same as `/check_compliance`).
+- Response structure is identical to `/check_compliance`.
+
+**Example usage:**
+```bash
+# Test against prompt version 2
+curl -X POST http://localhost:8000/validate_prompt_response \
+  -H "X-API-Key: sk-service-your-key-here" \
+  -H "Content-Type: application/json" \
+  -d @test_data/prompt_validation_example.json
+```
+
 ---
 
 ## Prompt-Driven Rule System
@@ -380,12 +427,22 @@ Rules are defined entirely in **Langfuse** as prompt templates - no custom Pytho
 
 ### Prompt Naming Convention
 
+**For `/check_compliance` (latest version):**
+
 | Priority | Name Format | Example |
 |---|---|---|
 | 1 (custom) | `{RULE_ID}_{MLS_ID}_violation` | `FAIR_TESTMLS_violation` |
 | 2 (default) | `{RULE_ID}_violation` | `FAIR_violation` |
 
 The system first tries the MLS-specific prompt, then falls back to the default. If neither exists, the request returns a `400` error.
+
+**For `/validate_prompt_response` (specific version):**
+
+| Name Format | Example |
+|---|---|
+| `fp_{RULE_ID}_violation` | `fp_FAIR_violation` |
+
+When a `prompt_version` is specified, the system fetches that exact version using the `fp_` prefixed naming convention from Langfuse.
 
 ### Prompt Template Variables
 
@@ -566,7 +623,7 @@ pytest tests/test_endpoints.py -v
 |---|---|
 | `test_auth.py` | JWT authentication & user management |
 | `test_api_key_auth.py` | API key authentication |
-| `test_endpoints.py` | API endpoint functionality |
+| `test_endpoints.py` | API endpoint functionality + prompt validation endpoint |
 | `test_integration.py` | End-to-end request flows |
 | `test_rate_limiter.py` | Dynamic rate limiting logic |
 | `test_registry.py` | Rule registry & dispatcher |
@@ -575,7 +632,7 @@ pytest tests/test_endpoints.py -v
 | `test_request_id.py` | Request ID middleware |
 | `test_utils.py` | JSON response parser |
 
-**99 tests | 100% pass rate | 89% code coverage**
+**107 tests | 100% pass rate | 89% code coverage**
 
 OpenAI and Langfuse are mocked for reproducible, offline tests.
 

@@ -7,7 +7,7 @@ These models define the schema for:
 """
 
 from pydantic import BaseModel, model_validator
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 class RuleConfig(BaseModel):
     """Configuration for a compliance rule.
@@ -78,6 +78,34 @@ class ComplianceRequest(BaseModel):
     """
     AIViolationID: List[RuleConfig]  # Rules to apply to all data items
     Data: List[DataItem]  # MLS listings to analyze
+
+
+class PromptValidationRequest(BaseModel):
+    """Request for validating prompt response with a specific prompt version.
+    
+    This uses the same payload structure as ComplianceRequest with the addition
+    of an optional prompt_version field to test against a specific prompt version.
+    
+    Attributes:
+        AIViolationID: List of rules to apply (FAIR, COMP, PROMO)
+        Data: List of MLS listings to check
+        prompt_version: Optional specific prompt version to load (latest if omitted)
+    
+    Example:
+        {
+            "AIViolationID": [
+                {"ID": "FAIR", "CheckColumns": "Remarks,PrivateRemarks"}
+            ],
+            "Data": [
+                {"mlsnum": "ML123", "mlsId": "TESTMLS", "Remarks": "Beautiful home"}
+            ],
+            "prompt_version": 2
+        }
+    """
+    AIViolationID: List[RuleConfig]  # Rules to apply to all data items
+    Data: List[DataItem]  # MLS listings to analyze
+    prompt_version: Optional[int] = None  # Specific prompt version to load
+
 
 class APIResponse(BaseModel):
     """Response returned after compliance checking.

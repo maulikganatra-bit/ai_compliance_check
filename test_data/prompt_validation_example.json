@@ -1,0 +1,14 @@
+{
+  "AIViolationID": [
+    {"ID": "FAIR", "CheckColumns": "Remarks,PrivateRemarks", "mlsId": "default"}
+  ],
+  "Data": [
+    {
+      "mlsnum": "TESTVAL001",
+      "mlsId": "default",
+      "Remarks": "Beautiful home in a family-friendly neighborhood",
+      "PrivateRemarks": "Owned by senior couple with excellent maintenance record"
+    }
+  ],
+  "prompt_version": null
+}
