@@ -23,6 +23,8 @@ from typing import Dict, Tuple, Optional, Any
 import asyncio
 from app.core.logger import api_logger, prompt_logger
 from app.core.config import LANGFUSE_CLIENT
+from app.core.prompt_replica_store import PromptStore
+import json
 
 
 # ---------------------------------------------------------------------------
@@ -73,6 +75,13 @@ class PromptManager:
         if not self._initialized:
             PromptManager._initialized = True
             api_logger.info("PromptManager initialised (no-cache mode)")
+            # initialize local prompt store for Langfuse fallback
+            try:
+                self._store = PromptStore()
+                self._store.init_db()
+            except Exception as e:
+                api_logger.error(f"Failed to initialize PromptStore for fallback: {e}")
+                self._store = None
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -89,17 +98,68 @@ class PromptManager:
             return prompt
         except Exception as e:
             api_logger.debug(f"Langfuse fetch failed for '{prompt_name}': {e}")
+            # Fall back to local PromptStore if available
+            if getattr(self, "_store", None) is not None:
+                try:
+                    local = self._store.get_latest_prompt(prompt_name)
+                    if local:
+                        # convert to a simple dict-like object
+                        api_logger.info(f"Using local prompt replica for '{prompt_name}' v{local.get('version')}")
+                        return local
+                except Exception as ex:
+                    api_logger.error(f"PromptStore fallback failed for '{prompt_name}': {ex}")
             return None
 
     def _build_prompt_data(
         self, prompt_obj: Any, prompt_name: str, rule_id: str, mls_id: str
     ) -> Dict[str, Any]:
         """Convert a raw Langfuse prompt object into our standard dict."""
+        # support both Langfuse objects (attributes) and local dicts (keys)
+        if isinstance(prompt_obj, dict):
+            raw_prompt = prompt_obj.get("prompt")
+            raw_config = prompt_obj.get("config")
+            raw_version = prompt_obj.get("version")
+        else:
+            # fallback to attribute access for Langfuse SDK objects
+            raw_prompt = getattr(prompt_obj, "prompt", None)
+            raw_config = getattr(prompt_obj, "config", None)
+            raw_version = getattr(prompt_obj, "version", None)
+
+        # Normalize prompt to a string suitable for Jinja2 Template
+        prompt_val = None
+        try:
+            if isinstance(raw_prompt, (list, dict)):
+                prompt_val = json.dumps(raw_prompt)
+            elif raw_prompt is None:
+                prompt_val = ""
+            else:
+                prompt_val = str(raw_prompt)
+        except Exception:
+            prompt_val = str(raw_prompt) if raw_prompt is not None else ""
+
+        # Normalize config to a dict (Template expects dict-like access later)
+        config_val = {}
+        try:
+            if isinstance(raw_config, dict):
+                config_val = raw_config
+            elif isinstance(raw_config, str):
+                try:
+                    config_val = json.loads(raw_config)
+                except Exception:
+                    config_val = {}
+            elif raw_config is None:
+                config_val = {}
+            else:
+                # unknown type, attempt to convert
+                config_val = dict(raw_config)
+        except Exception:
+            config_val = {}
+
         return {
             "name": prompt_name,
-            "prompt": prompt_obj.prompt,
-            "config": prompt_obj.config,
-            "version": getattr(prompt_obj, "version", None),
+            "prompt": prompt_val,
+            "config": config_val,
+            "version": raw_version,
             "rule_id": rule_id,
             "mls_id": mls_id,
         }
@@ -212,32 +272,42 @@ class PromptManager:
                 lambda: LANGFUSE_CLIENT.get_prompt(prompt_name, version=version)
             )
             if not prompt_obj:
-                api_logger.error(
-                    "Prompt not found: '%s' (version=%s)",
+                api_logger.debug(
+                    "Langfuse: prompt not found: '%s' (version=%s)",
                     prompt_name, version
                 )
-                return None
-            
-            prompt_data = self._build_prompt_data(
-                prompt_obj,
-                prompt_name,
-                rule_id.upper(),
-                "default"
-            )
+            else:
+                prompt_data = self._build_prompt_data(
+                    prompt_obj,
+                    prompt_name,
+                    rule_id.upper(),
+                    "default"
+                )
 
-            prompt_logger.info(
-                "Loaded prompt '%s' v%s",
-                prompt_name,
-                prompt_data.get("version")
-            )
+                prompt_logger.info(
+                    "Loaded prompt '%s' v%s",
+                    prompt_name,
+                    prompt_data.get("version")
+                )
 
-            return prompt_data
-        
+                return prompt_data
+
         except Exception as e:
             api_logger.debug(
-                f"Failed to fetch custom prompt version for ({prompt_name}, {version}, {mls_id}): {e}"
+                f"Failed to fetch custom prompt version from Langfuse for ({prompt_name}, {version}, {mls_id}): {e}"
             )
-            return None
+
+        # Langfuse missing or failed — attempt local store fallback (specific version)
+        if getattr(self, "_store", None) is not None:
+            try:
+                local = self._store.get_prompt_version(prompt_name, int(version))
+                if local:
+                    api_logger.info(f"Using local prompt replica for '{prompt_name}' v{local.get('version')}")
+                    return self._build_prompt_data(local, prompt_name, rule_id.upper(), "default")
+            except Exception as ex:
+                api_logger.error(f"PromptStore fallback failed for '{prompt_name}' v{version}: {ex}")
+
+        return None
 
 
     async def load_batch_prompts(

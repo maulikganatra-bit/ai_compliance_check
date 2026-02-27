@@ -1,4 +1,5 @@
 import sqlite3
+import json
 from typing import Optional
 from app.core.config import SQLITE_PATH
 from app.core.logger import api_logger, prompt_logger
@@ -119,6 +120,107 @@ class PromptStore:
             self.logger.info(f"Deleted prompt from store: {prompt_name} v{version}")
         except Exception as e:
             self.logger.error(f"Failed to delete prompt {prompt_name} v{version}: {e}")
+            raise
+
+    def get_latest_prompt(self, prompt_name: str) -> Optional[dict]:
+        """Return the highest-version prompt for `prompt_name` that has label 'production'.
+
+        The `labels` column may store a JSON array, a comma-separated string,
+        or other text. We parse it robustly and return the first (highest
+        version) row where one of the labels equals 'production' (case-insensitive).
+        Returns None if no production-labelled row exists.
+        """
+        try:
+            conn = self._get_conn()
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT version, prompt_text, updated_at, labels, config, created_by, created_at, commit_message FROM prompt_replica WHERE prompt_name = ? ORDER BY version DESC",
+                (prompt_name,)
+            )
+            rows = cur.fetchall()
+            cur.close()
+            conn.close()
+
+            if not rows:
+                return None
+
+            for row in rows:
+                labels_raw = row[3]
+                labels_list = []
+                try:
+                    if labels_raw is None:
+                        labels_list = []
+                    elif isinstance(labels_raw, (list, tuple)):
+                        labels_list = list(labels_raw)
+                    elif isinstance(labels_raw, str):
+                        s = labels_raw.strip()
+                        if s.startswith("[") or s.startswith("{"):
+                            try:
+                                labels_list = json.loads(s)
+                            except Exception:
+                                # try forgiving single-quote JSON
+                                try:
+                                    labels_list = json.loads(s.replace("'", '"'))
+                                except Exception:
+                                    # fallback to CSV-style parsing
+                                    labels_list = [p.strip() for p in s.strip('[]').split(',') if p.strip()]
+                        else:
+                            labels_list = [p.strip() for p in s.split(',') if p.strip()]
+                    else:
+                        labels_list = []
+                except Exception:
+                    labels_list = []
+
+                # Normalize and check for production label
+                try:
+                    found = any(str(lbl).strip().lower() == "production" for lbl in labels_list)
+                except Exception:
+                    found = False
+
+                if found:
+                    return {
+                        "version": int(row[0]),
+                        "prompt": row[1],
+                        "updated_at": row[2],
+                        "labels": row[3],
+                        "config": row[4],
+                        "created_by": row[5],
+                        "created_at": row[6],
+                        "commit_message": row[7],
+                    }
+
+            # No production-labelled row found
+            return None
+        except Exception as e:
+            self.logger.error(f"Failed to read latest prompt {prompt_name}: {e}")
+            raise
+
+    def get_prompt_version(self, prompt_name: str, version: int) -> Optional[dict]:
+        """Return a specific version row for a prompt_name as a dict, or None."""
+        try:
+            conn = self._get_conn()
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT version, prompt_text, updated_at, labels, config, created_by, created_at, commit_message FROM prompt_replica WHERE prompt_name = ? AND version = ? LIMIT 1",
+                (prompt_name, version),
+            )
+            row = cur.fetchone()
+            cur.close()
+            conn.close()
+            if not row:
+                return None
+            return {
+                "version": int(row[0]),
+                "prompt": row[1],
+                "updated_at": row[2],
+                "labels": row[3],
+                "config": row[4],
+                "created_by": row[5],
+                "created_at": row[6],
+                "commit_message": row[7],
+            }
+        except Exception as e:
+            self.logger.error(f"Failed to read prompt {prompt_name} v{version}: {e}")
             raise
 
 
