@@ -68,25 +68,65 @@ class PromptStore:
             conn = self._get_conn()
             cur = conn.cursor()
             cur.execute(
-                "SELECT 1 FROM prompt_replica WHERE prompt_name = ? AND version = ?",
+                "SELECT prompt_text, updated_at, labels, config, created_by, created_at, commit_message FROM prompt_replica WHERE prompt_name = ? AND version = ? LIMIT 1",
                 (prompt_name, version),
             )
-            exists = cur.fetchone()
-            if exists:
-                self.logger.debug(f"Prompt already exists: {prompt_name} v{version}")
+            row = cur.fetchone()
+
+            if not row:
+                cur.execute(
+                    "INSERT INTO prompt_replica (prompt_name, version, prompt_text, updated_at, labels, config, created_by, created_at, commit_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (prompt_name, version, prompt_text, updated_at, labels, config, created_by, created_at, commit_message),
+                )
+                conn.commit()
                 cur.close()
                 conn.close()
-                return False
+                self.logger.info(f"Inserted prompt: {prompt_name} v{version}")
+                return "inserted"
 
-            cur.execute(
-                "INSERT INTO prompt_replica (prompt_name, version, prompt_text, updated_at, labels, config, created_by, created_at, commit_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (prompt_name, version, prompt_text, updated_at, labels, config, created_by, created_at, commit_message),
-            )
-            conn.commit()
+            # Compare existing row to incoming data; update if any metadata changed
+            existing = {
+                "prompt_text": row[0],
+                "updated_at": row[1],
+                "labels": row[2],
+                "config": row[3],
+                "created_by": row[4],
+                "created_at": row[5],
+                "commit_message": row[6],
+            }
+
+            changed = False
+            if (existing.get("prompt_text") or "") != (prompt_text or ""):
+                changed = True
+            if (existing.get("labels") or "") != (labels or ""):
+                changed = True
+            if (existing.get("config") or "") != (config or ""):
+                changed = True
+            if (existing.get("created_by") or "") != (created_by or ""):
+                changed = True
+            if (existing.get("created_at") or "") != (created_at or ""):
+                changed = True
+            if (existing.get("commit_message") or "") != (commit_message or ""):
+                changed = True
+            if (existing.get("updated_at") or "") != (updated_at or ""):
+                changed = True
+
+            if changed:
+                cur.execute(
+                    "UPDATE prompt_replica SET prompt_text = ?, updated_at = ?, labels = ?, config = ?, created_by = ?, created_at = ?, commit_message = ? WHERE prompt_name = ? AND version = ?",
+                    (prompt_text, updated_at, labels, config, created_by, created_at, commit_message, prompt_name, version),
+                )
+                conn.commit()
+                cur.close()
+                conn.close()
+                self.logger.info(f"Updated prompt metadata: {prompt_name} v{version}")
+                return "updated"
+
+            # No changes
             cur.close()
             conn.close()
-            self.logger.info(f"Inserted prompt: {prompt_name} v{version}")
-            return True
+            self.logger.debug(f"Prompt already exists and unchanged: {prompt_name} v{version}")
+            return "skipped"
         except Exception as e:
             self.logger.error(f"Failed to store prompt {prompt_name} v{version}: {e}")
             raise

@@ -37,12 +37,12 @@ services:
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
 
     # Make sure API can talk to Langfuse container
-#     networks:
-#       - shared_backend
+    networks:
+      - shared_backend
 
-# networks:
-#   shared_backend:
-#     external: true
+networks:
+  shared_backend:
+    external: true
 
 # ============================================================================
 # Additional Services (Currently Unused - Uncomment if needed)

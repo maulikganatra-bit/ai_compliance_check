@@ -82,28 +82,46 @@ class PromptManager:
             except Exception as e:
                 api_logger.error(f"Failed to initialize PromptStore for fallback: {e}")
                 self._store = None
+            # Track Langfuse health: if a fetch raises an exception, mark unhealthy
+            # so subsequent requests prefer the local replica until a successful
+            # Langfuse call clears the flag.
+            self._langfuse_healthy = True
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
     async def _fetch_from_langfuse(self, prompt_name: str) -> Optional[Any]:
-        """Fetch a single prompt object from Langfuse (runs in executor)."""
+        """Fetch a single prompt object from Langfuse (runs in executor).
+
+        cache_ttl_seconds=0 disables the Langfuse SDK's built-in in-memory cache so
+        that any network failure raises an exception immediately and our local
+        DB fallback is always invoked when Langfuse is unreachable.
+        """
         loop = asyncio.get_event_loop()
         try:
             prompt = await loop.run_in_executor(
                 None,
-                lambda: LANGFUSE_CLIENT.get_prompt(prompt_name)
+                lambda: LANGFUSE_CLIENT.get_prompt(prompt_name, cache_ttl_seconds=0)
             )
+            # successful Langfuse call -> mark healthy
+            try:
+                self._langfuse_healthy = True
+            except Exception:
+                pass
             return prompt
         except Exception as e:
             api_logger.debug(f"Langfuse fetch failed for '{prompt_name}': {e}")
+            # mark unhealthy so future loads prefer local until a successful call
+            try:
+                self._langfuse_healthy = False
+            except Exception:
+                pass
             # Fall back to local PromptStore if available
             if getattr(self, "_store", None) is not None:
                 try:
                     local = self._store.get_latest_prompt(prompt_name)
                     if local:
-                        # convert to a simple dict-like object
                         api_logger.info(f"Using local prompt replica for '{prompt_name}' v{local.get('version')}")
                         return local
                 except Exception as ex:
@@ -155,6 +173,11 @@ class PromptManager:
         except Exception:
             config_val = {}
 
+        # Include source if prompt_obj is a local-row dict
+        source = "langfuse"
+        if isinstance(prompt_obj, dict):
+            source = prompt_obj.get("_source", "local") if prompt_obj.get("_source") is not None else "local"
+
         return {
             "name": prompt_name,
             "prompt": prompt_val,
@@ -162,6 +185,7 @@ class PromptManager:
             "version": raw_version,
             "rule_id": rule_id,
             "mls_id": mls_id,
+            "source": source,
         }
 
     # ------------------------------------------------------------------
@@ -269,7 +293,7 @@ class PromptManager:
             # Attempt to fetch specific version from Langfuse
             prompt_obj = await loop.run_in_executor(
                 None,
-                lambda: LANGFUSE_CLIENT.get_prompt(prompt_name, version=version)
+                lambda: LANGFUSE_CLIENT.get_prompt(prompt_name, version=version, cache_ttl_seconds=0)
             )
             if not prompt_obj:
                 api_logger.debug(

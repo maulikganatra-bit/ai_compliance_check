@@ -591,9 +591,11 @@ async def sync_all_prompts():
     store.init_db()
     added = 0
     skipped = 0
+    updated = 0
     # Track detailed lists of changed prompt versions
     added_items = []
     skipped_items = []
+    updated_items = []
     try:
         fetcher = LangfusePromptFetcher(LANGFUSE_CLIENT)
         entries = fetcher.fetch_all_prompt_versions()
@@ -652,7 +654,7 @@ async def sync_all_prompts():
 
         updated_at_val = str(updated_at) if updated_at is not None else datetime.datetime.utcnow().isoformat()
         try:
-            inserted = store.store_if_new(
+            status = store.store_if_new(
                 name,
                 int(ver),
                 serialized,
@@ -663,12 +665,18 @@ async def sync_all_prompts():
                 created_at=created_at_val_field,
                 commit_message=commit_message_val,
             )
-            if inserted:
+            if status == "inserted":
                 added += 1
                 try:
                     added_items.append({"name": str(name), "version": int(ver)})
                 except Exception:
                     added_items.append({"name": str(name), "version": ver})
+            elif status == "updated":
+                updated += 1
+                try:
+                    updated_items.append({"name": str(name), "version": int(ver)})
+                except Exception:
+                    updated_items.append({"name": str(name), "version": ver})
             else:
                 skipped += 1
                 try:
@@ -705,13 +713,15 @@ async def sync_all_prompts():
         except Exception as e:
             api_logger.error(f"Failed to delete DB prompt {name} v{ver}: {e}")
 
-    api_logger.info(f"Prompt sync completed: added={added}, skipped={skipped}, deleted={deleted}")
+    api_logger.info(f"Prompt sync completed: added={added}, updated={updated}, skipped={skipped}, deleted={deleted}")
     return {
         "status": "ok",
         "added": added,
+        "updated": updated,
         "skipped": skipped,
         "deleted": deleted,
         "added_items": added_items,
+        "updated_items": updated_items,
         "skipped_items": skipped_items,
         "deleted_items": deleted_items,
     }
