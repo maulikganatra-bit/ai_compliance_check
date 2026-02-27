@@ -280,3 +280,5 @@ MEDIUM_BUDGET_THRESHOLD = 0.20  # 20-50% remaining → Scale linearly
 LOW_BUDGET_THRESHOLD = 0.10     # <10% remaining → Use MIN_CONCURRENCY (10)
 
 
+# SQLite Database
+SQLITE_PATH = os.getenv("PROMPT_SQLITE_PATH", "db.sqlite3")

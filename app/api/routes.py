@@ -8,10 +8,15 @@ from app.core.logger import api_logger
 from app.core.rate_limiter import get_rate_limiter
 from app.auth.dependencies import verify_authentication
 from app.core.prompt_cache import get_prompt_manager
+from app.core.lf_prompt_repo import LangfusePromptFetcher
+from app.core.prompt_replica_store import PromptStore
+from app.core.config import LANGFUSE_CLIENT
 from typing import Dict, Union, Any, Optional
 import asyncio
 import time
 import inspect
+import json
+import datetime
 
 router = APIRouter()
 
@@ -574,3 +579,139 @@ async def validate_prompt_response(
     except Exception as e:
         api_logger.error(f"Error during prompt validation: {str(e)}", exc_info=True)
         raise
+
+
+# Langfuse -> SQLite prompt sync endpoint
+@router.post("/prompts/sync")
+async def sync_all_prompts():
+    """
+    Fetch all prompts from Langfuse and sync into local SQLite `prompt_replica` table.
+    """
+    store = PromptStore()
+    store.init_db()
+    added = 0
+    skipped = 0
+    # Track detailed lists of changed prompt versions
+    added_items = []
+    skipped_items = []
+    try:
+        fetcher = LangfusePromptFetcher(LANGFUSE_CLIENT)
+        entries = fetcher.fetch_all_prompt_versions()
+    except Exception as e:
+        api_logger.error(f"Failed to fetch prompts from Langfuse: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch prompts from Langfuse: {e}")
+
+    fetched_set = set()
+    for entry in entries:
+        name = entry.get("name")
+        v = entry.get("version_obj")
+        if not name or v is None:
+            continue
+
+        ver = getattr(v, "version", None)
+        text = getattr(v, "prompt", None) or getattr(v, "text", None)
+        updated_at = getattr(v, "updated_at", None) or getattr(v, "updatedAt", None)
+        # Additional metadata fields (optional)
+        labels_field = getattr(v, "labels", None) or getattr(v, "meta", None)
+        config_field = getattr(v, "config", None) or getattr(v, "settings", None)
+        created_by_field = getattr(v, "created_by", None) or getattr(v, "createdBy", None)
+        created_at_field = getattr(v, "created_at", None) or getattr(v, "createdAt", None)
+        commit_message_field = getattr(v, "commit_message", None) or getattr(v, "commitMessage", None)
+
+        # Serialize complex prompt types (chat) to JSON
+        try:
+            if isinstance(text, (list, dict)):
+                serialized = json.dumps(text)
+            else:
+                serialized = str(text)
+        except Exception:
+            serialized = str(text)
+
+        # Serialize metadata fields if complex
+        try:
+            labels_val = None
+            if labels_field is not None:
+                labels_val = json.dumps(labels_field) if isinstance(labels_field, (list, dict)) else str(labels_field)
+        except Exception:
+            labels_val = str(labels_field)
+
+        try:
+            config_val = None
+            if config_field is not None:
+                config_val = json.dumps(config_field) if isinstance(config_field, (list, dict)) else str(config_field)
+        except Exception:
+            config_val = str(config_field)
+
+        created_by_val = str(created_by_field) if created_by_field is not None else None
+        created_at_val_field = str(created_at_field) if created_at_field is not None else None
+        commit_message_val = str(commit_message_field) if commit_message_field is not None else None
+
+        if ver is None or serialized is None:
+            api_logger.debug(f"Skipping version with missing fields for {name}: v={ver}")
+            continue
+
+        updated_at_val = str(updated_at) if updated_at is not None else datetime.datetime.utcnow().isoformat()
+        try:
+            inserted = store.store_if_new(
+                name,
+                int(ver),
+                serialized,
+                updated_at_val,
+                labels=labels_val,
+                config=config_val,
+                created_by=created_by_val,
+                created_at=created_at_val_field,
+                commit_message=commit_message_val,
+            )
+            if inserted:
+                added += 1
+                try:
+                    added_items.append({"name": str(name), "version": int(ver)})
+                except Exception:
+                    added_items.append({"name": str(name), "version": ver})
+            else:
+                skipped += 1
+                try:
+                    skipped_items.append({"name": str(name), "version": int(ver)})
+                except Exception:
+                    skipped_items.append({"name": str(name), "version": ver})
+        except Exception as e:
+            api_logger.error(f"Failed to store prompt {name} v{ver}: {e}")
+
+        # Track which prompt versions were observed in Langfuse
+        try:
+            fetched_set.add((str(name), int(ver)))
+        except Exception:
+            pass
+
+    # Detect deletions: entries present in DB but not reported by Langfuse
+    try:
+        db_entries = store.list_all_entries()
+        to_delete = db_entries - fetched_set
+    except Exception as e:
+        api_logger.error(f"Failed to enumerate DB entries for deletion check: {e}")
+        to_delete = set()
+
+    deleted = 0
+    deleted_items = []
+    for name, ver in to_delete:
+        try:
+            store.delete_entry(name, ver)
+            deleted += 1
+            try:
+                deleted_items.append({"name": str(name), "version": int(ver)})
+            except Exception:
+                deleted_items.append({"name": str(name), "version": ver})
+        except Exception as e:
+            api_logger.error(f"Failed to delete DB prompt {name} v{ver}: {e}")
+
+    api_logger.info(f"Prompt sync completed: added={added}, skipped={skipped}, deleted={deleted}")
+    return {
+        "status": "ok",
+        "added": added,
+        "skipped": skipped,
+        "deleted": deleted,
+        "added_items": added_items,
+        "skipped_items": skipped_items,
+        "deleted_items": deleted_items,
+    }
