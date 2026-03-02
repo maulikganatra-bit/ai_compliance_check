@@ -66,10 +66,11 @@ def mock_langfuse(manager):
 
 
 @pytest.fixture
-def langfuse_404(mock_langfuse):
-    """Langfuse always raises 404 (no prompt found)."""
+def langfuse_404(mock_langfuse, manager):
+    """Langfuse always raises 404 (no prompt found). Local store also disabled."""
     mock_langfuse.get_prompt = Mock(side_effect=Exception("status_code: 404"))
-    return mock_langfuse
+    with patch.object(manager, "_store", None):
+        yield mock_langfuse
 
 
 # ============================================================================
@@ -132,7 +133,7 @@ class TestLoadPrompt:
     @pytest.mark.asyncio
     async def test_fallback_loads_default_when_custom_missing(self, manager, mock_langfuse):
         """After failing to find custom, the default prompt is loaded and returned."""
-        def side_effect(name):
+        def side_effect(name, **kwargs):
             if "Miami" in name:
                 raise Exception("404")
             return _make_prompt_obj("default text")
@@ -153,7 +154,7 @@ class TestLoadPrompt:
     async def test_default_request_skips_custom_lookup(self, manager, mock_langfuse):
         """Requesting mls_id='default' must never attempt a custom Langfuse lookup."""
         names_fetched = []
-        mock_langfuse.get_prompt = Mock(side_effect=lambda n: (names_fetched.append(n), _make_prompt_obj())[1])
+        mock_langfuse.get_prompt = Mock(side_effect=lambda n, **kw: (names_fetched.append(n), _make_prompt_obj())[1])
 
         await manager._load_prompt("FAIR", "default")
 
@@ -176,7 +177,7 @@ class TestLoadPrompt:
         """Two requests with different MLS ID casing result in different Langfuse lookups."""
         names_fetched = []
 
-        def side_effect(name):
+        def side_effect(name, **kwargs):
             names_fetched.append(name)
             if "_Miami_" in name:
                 return _make_prompt_obj("custom Miami")
@@ -184,8 +185,9 @@ class TestLoadPrompt:
 
         mock_langfuse.get_prompt = Mock(side_effect=side_effect)
 
-        res_miami = await manager._load_prompt("FAIR", "Miami")
-        res_MIAMI = await manager._load_prompt("FAIR", "MIAMI")
+        with patch.object(manager, "_store", None):
+            res_miami = await manager._load_prompt("FAIR", "Miami")
+            res_MIAMI = await manager._load_prompt("FAIR", "MIAMI")
 
         # Miami -> custom prompt found
         assert res_miami["name"] == "FAIR_Miami_violation"
@@ -267,15 +269,16 @@ class TestLoadBatchPrompts:
     @pytest.mark.asyncio
     async def test_mls_case_sensitivity_in_batch(self, manager, mock_langfuse):
         """Miami and MIAMI in the same batch are independent lookups."""
-        def side_effect(name):
+        def side_effect(name, **kwargs):
             if "_Miami_" in name:
                 return _make_prompt_obj("custom")
             raise Exception("404")
 
         mock_langfuse.get_prompt = Mock(side_effect=side_effect)
 
-        pairs = [("FAIR", "Miami"), ("FAIR", "MIAMI")]
-        result = await manager.load_batch_prompts(pairs)
+        with patch.object(manager, "_store", None):
+            pairs = [("FAIR", "Miami"), ("FAIR", "MIAMI")]
+            result = await manager.load_batch_prompts(pairs)
 
         # Miami -> custom prompt found
         assert result[("FAIR", "Miami")]["name"] == "FAIR_Miami_violation"
@@ -287,7 +290,7 @@ class TestLoadBatchPrompts:
         """Exceptions during fetch result in None for that pair."""
         call_count = {"n": 0}
 
-        def side_effect(name):
+        def side_effect(name, **kwargs):
             call_count["n"] += 1
             if "COMP" in name:
                 raise Exception("Connection timeout")
@@ -295,8 +298,9 @@ class TestLoadBatchPrompts:
 
         mock_langfuse.get_prompt = Mock(side_effect=side_effect)
 
-        pairs = [("FAIR", "default"), ("COMP", "default")]
-        result = await manager.load_batch_prompts(pairs)
+        with patch.object(manager, "_store", None):
+            pairs = [("FAIR", "default"), ("COMP", "default")]
+            result = await manager.load_batch_prompts(pairs)
 
         assert result[("FAIR", "default")] is not None
         assert result[("COMP", "default")] is None
@@ -304,7 +308,7 @@ class TestLoadBatchPrompts:
     @pytest.mark.asyncio
     async def test_mixed_custom_and_default(self, manager, mock_langfuse):
         """Batch with mixed custom and default prompt lookups."""
-        def side_effect(name):
+        def side_effect(name, **kwargs):
             if "_Miami_" in name and "FAIR" in name:
                 return _make_prompt_obj("custom FAIR Miami")
             if "_Miami_" in name and "COMP" in name:
@@ -313,8 +317,9 @@ class TestLoadBatchPrompts:
 
         mock_langfuse.get_prompt = Mock(side_effect=side_effect)
 
-        pairs = [("FAIR", "Miami"), ("COMP", "Miami")]
-        result = await manager.load_batch_prompts(pairs)
+        with patch.object(manager, "_store", None):
+            pairs = [("FAIR", "Miami"), ("COMP", "Miami")]
+            result = await manager.load_batch_prompts(pairs)
 
         assert result[("FAIR", "Miami")]["name"] == "FAIR_Miami_violation"
         assert result[("COMP", "Miami")]["name"] == "COMP_violation"  # fell back to default
@@ -350,7 +355,7 @@ class TestIntegration:
         An MLS ID never seen before: custom not in Langfuse ->
         default loaded -> correct data returned.
         """
-        def side_effect(name):
+        def side_effect(name, **kwargs):
             if "UnknownMLS" in name:
                 raise Exception("404")
             return _make_prompt_obj("default prompt")
@@ -374,7 +379,7 @@ class TestIntegration:
     @pytest.mark.asyncio
     async def test_multiple_rules_same_mls_id_independent(self, manager, mock_langfuse):
         """FAIR and COMP with the same MLS ID are independent lookups."""
-        def side_effect(name):
+        def side_effect(name, **kwargs):
             if "Miami" in name and "FAIR" in name:
                 return _make_prompt_obj("custom FAIR Miami")
             if "Miami" in name and "COMP" in name:
@@ -383,8 +388,9 @@ class TestIntegration:
 
         mock_langfuse.get_prompt = Mock(side_effect=side_effect)
 
-        fair_result = await manager.get_prompt("FAIR", "Miami")
-        comp_result = await manager.get_prompt("COMP", "Miami")
+        with patch.object(manager, "_store", None):
+            fair_result = await manager.get_prompt("FAIR", "Miami")
+            comp_result = await manager.get_prompt("COMP", "Miami")
 
         assert fair_result["name"] == "FAIR_Miami_violation"
         assert comp_result["name"] == "COMP_violation"  # fell back to default
