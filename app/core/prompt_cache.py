@@ -284,7 +284,7 @@ class PromptManager:
         Returns:
             Dict with prompt data including version, or None if not found
         """
-        prompt_name = f"fp_{rule_id.upper()}_violation"
+        prompt_name = f"fp_{rule_id}_violation"
         
         api_logger.info(f"Fetching prompt version {version}: ({prompt_name}, {mls_id})")
 
@@ -327,7 +327,7 @@ class PromptManager:
                 local = self._store.get_prompt_version(prompt_name, int(version))
                 if local:
                     api_logger.info(f"Using local prompt replica for '{prompt_name}' v{local.get('version')}")
-                    return self._build_prompt_data(local, prompt_name, rule_id.upper(), "default")
+                    return self._build_prompt_data(local, prompt_name, rule_id, "default")
             except Exception as ex:
                 api_logger.error(f"PromptStore fallback failed for '{prompt_name}' v{version}: {ex}")
 
