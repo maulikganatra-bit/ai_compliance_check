@@ -2,69 +2,38 @@
     "ok": 200,
     "results": [
         {
-            "mlsnum": "564564564OD",
-            "mls_id": "TESTMLS",
-            "COMP": {
-                "Remarks": [],
-                "PrivateRemarks": [
-                    {
-                        "DetectedText": "Agent will offer bonus if closed fast.",
-                        "explanation": "This implies a financial incentive or bonus for closing quickly, which is prohibited."
-                    }
-                ],
-                "Total_tokens": 503
-            },
-            "FAIR": {
-                "Remarks": [],
-                "PrivateRemarks": [],
-                "Total_tokens": 617
-            },
+            "mlsnum": "6942376AR",
+            "mlsId": "ARMls",
+            "COMP": null,
             "PROMO": {
-                "Remarks": [],
-                "PrivateRemarks": [
+                "MLS Listing Description": [
                     {
-                        "DetectedText": "Agent will offer bonus if closed fast.",
-                        "explanation": "Offering a bonus is a form of self-promotion or incentive that is not allowed."
+                        "DetectedText": "Contact John Smith for details.",
+                        "explanation": "Explicit agent name identified as contact."
+                    },
+                    {
+                        "DetectedText": "555-123-4567",
+                        "explanation": "Explicit phone number detected."
+                    },
+                    {
+                        "DetectedText": "name@example.com",
+                        "explanation": "Explicit email address detected."
+                    },
+                    {
+                        "DetectedText": "www.example.com",
+                        "explanation": "Explicit URL detected."
                     }
                 ],
-                "Total_tokens": 545
-            },
-            "latency": 5.824660539627075,
-            "tokens_used": 1665
-        },
-        {
-            "mlsnum": "564554564OD",
-            "mls_id": "TESTMLS",
-            "COMP": {
                 "Remarks": [],
-                "PrivateRemarks": [
-                    {
-                        "DetectedText": "Seller is open to buyer concessions.",
-                        "explanation": "Mentions potential financial incentives for buyers."
-                    }
-                ],
-                "Total_tokens": 500
+                "Directions": [],
+                "Total_tokens": 1230
             },
-            "FAIR": {
-                "Remarks": [],
-                "PrivateRemarks": [],
-                "Total_tokens": 595
-            },
-            "PROMO": {
-                "Remarks": [
-                    {
-                        "DetectedText": "contact agent on 704-555-1234 for more info.",
-                        "explanation": "Includes personal contact information, which is prohibited."
-                    }
-                ],
-                "PrivateRemarks": [],
-                "Total_tokens": 544
-            },
-            "latency": 5.938324451446533,
-            "tokens_used": 1639
+            "latency": 5.237894296646118,
+            "tokens_used": 2757
         }
     ],
+    "request_id": "1e364986-358e-451e-957e-8e5f9bfefc2f",
     "error_message": "",
-    "total_tokens": 3304,
-    "elapsed_time": 5.940859794616699
+    "total_tokens": 2757,
+    "elapsed_time": 5.239242315292358
 }

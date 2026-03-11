@@ -231,7 +231,7 @@ class TestGetPrompt:
     @pytest.mark.asyncio
     async def test_custom_fallback_to_default(self, manager, mock_langfuse):
         """When custom prompt not found, falls back to default."""
-        def side_effect(name):
+        def side_effect(name, **kwargs):
             if "Miami" in name:
                 raise Exception("404")
             return _make_prompt_obj("default text")

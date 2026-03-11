@@ -18,6 +18,7 @@ from app.core.middleware import RequestIDMiddleware
 from app.core.rate_limiter import get_rate_limiter
 from app.core.prompt_cache import get_prompt_manager
 from app.core.config import MAX_CONNECTIONS, MAX_KEEPALIVE_CONNECTIONS, API_TIMEOUT, FRONTEND_URL
+from app.core.metrics import instrumentator
 import httpx
 from openai import AsyncOpenAI
 
@@ -128,6 +129,10 @@ app.include_router(auth_router)
 
 # Include API routes from routes.py
 app.include_router(router)
+
+# Instrument the app for Prometheus metrics
+# Adds GET /metrics endpoint and auto-tracks HTTP request count, duration, in-flight
+instrumentator.instrument(app).expose(app, include_in_schema=False)
 
 # Health check endpoint - verifies API is running
 @app.get("/")

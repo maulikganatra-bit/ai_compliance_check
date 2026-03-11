@@ -7,6 +7,7 @@ from app.core.logger import rules_logger
 from app.core.retry_handler import retry_with_backoff
 from app.core.rate_limiter import get_rate_limiter
 from app.core.config import OPENAI_API_KEY
+from app.core.metrics import OPENAI_ERROR_COUNTER
 
 
 # Client will be set from main.py during startup.
@@ -145,6 +146,7 @@ async def execute_rule_with_prompt(
             rules_logger.error(
                 f"{rule_id} rule: Unable to parse JSON result from model output: {json_content}"
             )
+            OPENAI_ERROR_COUNTER.labels(error_type="parse_error").inc()
             raise ValueError(f"{rule_id} rule: invalid model output format")
 
         json_result = json_content["result"]
@@ -158,6 +160,16 @@ async def execute_rule_with_prompt(
         )
         return json_result
     except Exception as e:
+        # Classify error for Prometheus metrics
+        err_str = str(e).lower()
+        err_type_name = type(e).__name__
+        if "timeout" in err_str or "Timeout" in err_type_name:
+            OPENAI_ERROR_COUNTER.labels(error_type="timeout").inc()
+        elif "rate" in err_str or "RateLimit" in err_type_name:
+            OPENAI_ERROR_COUNTER.labels(error_type="rate_limit").inc()
+        elif "invalid model output" not in err_str:
+            # parse_error already counted above; only count other errors
+            OPENAI_ERROR_COUNTER.labels(error_type="api_error").inc()
         rules_logger.error(f"Error in execute_rule_with_prompt for {rule_id}: {str(e)}", exc_info=True)
         raise
 

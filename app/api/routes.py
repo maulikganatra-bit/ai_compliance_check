@@ -11,6 +11,14 @@ from app.core.prompt_cache import get_prompt_manager
 from app.core.lf_prompt_repo import LangfusePromptFetcher
 from app.core.prompt_replica_store import PromptStore
 from app.core.config import LANGFUSE_CLIENT
+from app.core.metrics import (
+    COMPLIANCE_STATUS_COUNTER,
+    TOKEN_USAGE_COUNTER,
+    TOKEN_USAGE_HISTOGRAM,
+    RECORDS_IN_PROCESSING,
+    RECORD_LATENCY_HISTOGRAM,
+    OPENAI_ERROR_COUNTER,
+)
 from typing import Dict, Union, Any, Optional
 import asyncio
 import time
@@ -140,6 +148,7 @@ async def check_compliance(
             missing_details = [
                 f"'{rule_id}' (mls_id='{mls_id}')" for rule_id, mls_id in missing_prompts
             ]
+            COMPLIANCE_STATUS_COUNTER.labels(code="601", endpoint="check_compliance").inc()
             raise HTTPException(
                 status_code=400,
                 detail=(
@@ -149,24 +158,25 @@ async def check_compliance(
                     f"(MLS-specific)."
                 )
             )
-        
+
         loaded_count = sum(1 for p in prompts_map.values() if p is not None)
         api_logger.info(f"Loaded {loaded_count}/{len(rule_mls_pairs)} prompts from cache")
-    
+
     except HTTPException:
         raise
     except Exception as e:
         api_logger.error(f"Error loading prompts: {str(e)}", exc_info=True)
+        COMPLIANCE_STATUS_COUNTER.labels(code="500", endpoint="check_compliance").inc()
         raise HTTPException(
             status_code=500,
             detail=f"Failed to load prompts from Langfuse: {str(e)}"
         )
 
-    
+
     try:
         # Pass the generated request_id and MLS-scoped rules map into processing
         request_id = getattr(request.state, 'request_id', None)
-        result = await process_all_records(compliance_request, mls_rules_map=mls_rules_map, prompts_map=prompts_map, request_id=request_id)
+        result = await process_all_records(compliance_request, mls_rules_map=mls_rules_map, prompts_map=prompts_map, request_id=request_id, endpoint="check_compliance")
         api_logger.info(f"Compliance check completed successfully. Total tokens: {result.total_tokens}, Elapsed time: {result.elapsed_time:.2f}s")
         return result
     except Exception as e:
@@ -242,6 +252,17 @@ async def process_single_rule(record: DataItem, rule_id: str, columns: list, mls
     
     except Exception as e:
         api_logger.error(f"Error applying rule {rule_id} to record {record.mlsnum}: {str(e)}", exc_info=True)
+        # Classify error for metrics
+        err_str = str(e).lower()
+        err_type_name = type(e).__name__
+        if "timeout" in err_str or "Timeout" in err_type_name:
+            OPENAI_ERROR_COUNTER.labels(error_type="timeout").inc()
+        elif "rate" in err_str or "RateLimit" in err_type_name:
+            OPENAI_ERROR_COUNTER.labels(error_type="rate_limit").inc()
+        elif "parse" in err_str or "json" in err_str or "invalid model output" in err_str:
+            OPENAI_ERROR_COUNTER.labels(error_type="parse_error").inc()
+        else:
+            OPENAI_ERROR_COUNTER.labels(error_type="api_error").inc()
         return (rule_id.upper(), {
             "Remarks": [],
             "PrivateRemarks": [],
@@ -270,65 +291,70 @@ async def process_record(record: DataItem, mls_rules_map: Dict, prompts_map: Dic
         Dictionary with results for all rules
     """
     async with semaphore:
-        start_time = time.time()
-        mlsnum = record.mlsnum
-        mls_id = record.mlsId
-        record_result = {"mlsnum": mlsnum, "mlsId": mls_id}
-        
-        # Filter rules applicable to this record's mlsId
-        applicable_rules = {k[0]: list(v) for k, v in mls_rules_map.items() if k[1] == mls_id}
-        
-        api_logger.debug(f"Processing record {mlsnum} from MLS {mls_id} with {len(applicable_rules)} rules in parallel")
-        
-        # Execute ALL applicable rules in parallel for this record
-        rule_tasks = []
-        for rule_id, columns in applicable_rules.items():
-            # Get pre-loaded prompt for this rule
-            prompt_key = (rule_id, mls_id)
-            prompt_data = prompts_map.get(prompt_key)
+        RECORDS_IN_PROCESSING.inc()
+        try:
+            start_time = time.time()
+            mlsnum = record.mlsnum
+            mls_id = record.mlsId
+            record_result = {"mlsnum": mlsnum, "mlsId": mls_id}
 
-            rule_tasks.append(process_single_rule(record, rule_id, columns, mls_id, prompt_data))
-        
-        # Wait for all rules to complete
-        rule_results = await asyncio.gather(*rule_tasks, return_exceptions=True)
-        # Aggregate results
-        total_tokens = 0
-        for result in rule_results:
-            if isinstance(result, tuple):
-                rule_id_upper, rule_result, tokens_used = result
-                record_result[rule_id_upper] = rule_result
-                total_tokens += tokens_used
-            elif isinstance(result, Exception):
-                api_logger.error(f"Exception in rule processing for {mlsnum}: {str(result)}")
-        
-        # Set rule to null if all field arrays are empty (no violations detected)
-        for rule_id_upper in list(record_result.keys()):
-            if rule_id_upper not in ["mlsnum", "mlsId", "latency", "tokens_used"]:
-                rule_data = record_result[rule_id_upper]
-                if isinstance(rule_data, dict):
-                    # Check if all field arrays are empty
-                    all_empty = True
-                    for field_key, field_value in rule_data.items():
-                        # Skip metadata fields like Total_tokens, error
-                        if field_key not in ["Total_tokens", "error"] and isinstance(field_value, list):
-                            if len(field_value) > 0:
-                                all_empty = False
-                                break
-                    
-                    # If all field arrays are empty, set rule to null
-                    if all_empty:
-                        record_result[rule_id_upper] = None
-                        api_logger.debug(f"Rule {rule_id_upper} set to null for {mlsnum} (no violations detected)")
-        
-        latency = time.time() - start_time
-        record_result["latency"] = latency
-        record_result["tokens_used"] = total_tokens
+            # Filter rules applicable to this record's mlsId
+            applicable_rules = {k[0]: list(v) for k, v in mls_rules_map.items() if k[1] == mls_id}
 
-        api_logger.debug(f"Record {mlsnum} processed in {latency:.2f}s with {total_tokens} tokens ({len(applicable_rules)} rules in parallel)")
-        return record_result
+            api_logger.debug(f"Processing record {mlsnum} from MLS {mls_id} with {len(applicable_rules)} rules in parallel")
+
+            # Execute ALL applicable rules in parallel for this record
+            rule_tasks = []
+            for rule_id, columns in applicable_rules.items():
+                # Get pre-loaded prompt for this rule
+                prompt_key = (rule_id, mls_id)
+                prompt_data = prompts_map.get(prompt_key)
+
+                rule_tasks.append(process_single_rule(record, rule_id, columns, mls_id, prompt_data))
+
+            # Wait for all rules to complete
+            rule_results = await asyncio.gather(*rule_tasks, return_exceptions=True)
+            # Aggregate results
+            total_tokens = 0
+            for result in rule_results:
+                if isinstance(result, tuple):
+                    rule_id_upper, rule_result, tokens_used = result
+                    record_result[rule_id_upper] = rule_result
+                    total_tokens += tokens_used
+                elif isinstance(result, Exception):
+                    api_logger.error(f"Exception in rule processing for {mlsnum}: {str(result)}")
+
+            # Set rule to null if all field arrays are empty (no violations detected)
+            for rule_id_upper in list(record_result.keys()):
+                if rule_id_upper not in ["mlsnum", "mlsId", "latency", "tokens_used"]:
+                    rule_data = record_result[rule_id_upper]
+                    if isinstance(rule_data, dict):
+                        # Check if all field arrays are empty
+                        all_empty = True
+                        for field_key, field_value in rule_data.items():
+                            # Skip metadata fields like Total_tokens, error
+                            if field_key not in ["Total_tokens", "error"] and isinstance(field_value, list):
+                                if len(field_value) > 0:
+                                    all_empty = False
+                                    break
+
+                        # If all field arrays are empty, set rule to null
+                        if all_empty:
+                            record_result[rule_id_upper] = None
+                            api_logger.debug(f"Rule {rule_id_upper} set to null for {mlsnum} (no violations detected)")
+
+            latency = time.time() - start_time
+            record_result["latency"] = latency
+            record_result["tokens_used"] = total_tokens
+            RECORD_LATENCY_HISTOGRAM.observe(latency)
+
+            api_logger.debug(f"Record {mlsnum} processed in {latency:.2f}s with {total_tokens} tokens ({len(applicable_rules)} rules in parallel)")
+            return record_result
+        finally:
+            RECORDS_IN_PROCESSING.dec()
 
 
-async def process_all_records(request: ComplianceRequest, mls_rules_map: Dict, prompts_map: Dict, request_id: str = None):
+async def process_all_records(request: ComplianceRequest, mls_rules_map: Dict, prompts_map: Dict, request_id: str = None, endpoint: str = "check_compliance"):
     """
     Process all records with dynamic concurrency based on rate limits.
     
@@ -420,7 +446,12 @@ async def process_all_records(request: ComplianceRequest, mls_rules_map: Dict, p
     # Log rate limiter stats
     limiter_stats = rate_limiter.get_stats()
     api_logger.info(f"Rate limiter stats: {limiter_stats}")
-    
+
+    # Emit Prometheus metrics
+    COMPLIANCE_STATUS_COUNTER.labels(code="200", endpoint=endpoint).inc()
+    TOKEN_USAGE_COUNTER.labels(endpoint=endpoint).inc(total_tokens)
+    TOKEN_USAGE_HISTOGRAM.labels(endpoint=endpoint).observe(total_tokens)
+
     return APIResponse(
         ok=200,
         results=clean_results,
@@ -549,6 +580,7 @@ async def validate_prompt_response(
             missing_details = [
                 f"'{rule_id}' (mls_id='{mls_id}')" for rule_id, mls_id in missing_prompts
             ]
+            COMPLIANCE_STATUS_COUNTER.labels(code="601", endpoint="validate_prompt_response").inc()
             raise HTTPException(
                 status_code=400,
                 detail=(
@@ -558,14 +590,15 @@ async def validate_prompt_response(
                     f"(MLS-specific)."
                 )
             )
-        
+
         loaded_count = sum(1 for p in prompts_map.values() if p is not None)
         api_logger.info(f"Loaded {loaded_count}/{len(rule_mls_pairs)} prompts")
-    
+
     except HTTPException:
         raise
     except Exception as e:
         api_logger.error(f"Error loading prompts: {str(e)}", exc_info=True)
+        COMPLIANCE_STATUS_COUNTER.labels(code="500", endpoint="validate_prompt_response").inc()
         raise HTTPException(
             status_code=500,
             detail=f"Failed to load prompts from Langfuse: {str(e)}"
@@ -573,7 +606,7 @@ async def validate_prompt_response(
 
     try:
         # Process records using the validation request object (not compliance_request)
-        result = await process_all_records(validation_request, mls_rules_map=mls_rules_map, prompts_map=prompts_map, request_id=request_id)
+        result = await process_all_records(validation_request, mls_rules_map=mls_rules_map, prompts_map=prompts_map, request_id=request_id, endpoint="validate_prompt_response")
         api_logger.info(f"Prompt validation completed successfully. Total tokens: {result.total_tokens}, Elapsed time: {result.elapsed_time:.2f}s")
         return result
     except Exception as e:

@@ -18,7 +18,7 @@ services:
     ports:
       - "8000:8000"
     env_file:
-      - .env  # Load environment variables (OPENAI_API_KEY, etc.)
+      - .env  # Fallback for local dev; shell env vars (TeamCity/Octopus) take priority
     volumes:
       - .:/app  # Mount current directory for hot-reload during development
       - ./logs:/app/logs  # Persist logs outside container
@@ -26,6 +26,14 @@ services:
     environment:
       - PYTHONUNBUFFERED=1  # Force real-time log output
       - PROMPT_SQLITE_PATH=/data/prompt_replica.db
+      - OPENAI_API_KEY
+      - ENVIRONMENT
+      - OCTOPUS_RELEASE
+      - JWT_SECRET_KEY
+      - JWT_ALGORITHM
+      - ACCESS_TOKEN_EXPIRE_MINUTES
+      - REFRESH_TOKEN_EXPIRE_DAYS
+      - SERVICE_API_KEY
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/"]
       interval: 30s
@@ -58,30 +66,55 @@ services:
       crond -f -l 2
       "
 
+  # --------------------------------------------------------------------------
+  # Prometheus - Metrics Collection
+  # --------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: compliance_prometheus
+    restart: unless-stopped
+    ports:
+      - "9092:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=15d"
+    depends_on:
+      - api
+    networks:
+      - shared_backend
+
+  # --------------------------------------------------------------------------
+  # Grafana - Dashboards & Visualization
+  # --------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: compliance_grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    networks:
+      - shared_backend
+
 networks:
   shared_backend:
     external: true
 
-# ============================================================================
-# Additional Services (Currently Unused - Uncomment if needed)
-# ============================================================================
-# 
-# redis:
-#   image: redis:7-alpine
-#   container_name: compliance_redis
-#   restart: unless-stopped
-#   ports:
-#     - "6379:6379"
-#   volumes:
-#     - redis_data:/data
-#   healthcheck:
-#     test: ["CMD", "redis-cli", "ping"]
-#     interval: 10s
-#     timeout: 3s
-#     retries: 3
-#
-# volumes:
-#   redis_data:
+volumes:
+  prometheus_data:
+  grafana_data:
 
 # ============================================================================
 # Usage Instructions:
@@ -92,15 +125,14 @@ networks:
 #   docker-compose logs -f api     # Follow logs
 #   docker-compose down            # Stop all services
 #
-# Production:
-#   1. Change command to: --workers 4 (remove --reload)
-#   2. Set restart: always
-#   3. docker-compose up -d
+# Monitoring:
+#   http://localhost:8000/metrics   # Prometheus metrics endpoint
+#   http://localhost:9090           # Prometheus UI
+#   http://localhost:3001           # Grafana (admin/admin)
 #
 # Rebuild after code changes:
 #   docker-compose up --build
 #
 # Access API:
 #   http://localhost:8000/docs      # Swagger UI
-#   http://localhost:8000/health    # Health check endpoint
 # ============================================================================
