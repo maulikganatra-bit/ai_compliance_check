@@ -281,4 +281,4 @@ LOW_BUDGET_THRESHOLD = 0.10     # <10% remaining → Use MIN_CONCURRENCY (10)
 
 
 # SQLite Database
-SQLITE_PATH = os.getenv("PROMPT_SQLITE_PATH", "db.sqlite3")
+SQLITE_PATH = os.getenv("PROMPT_SQLITE_PATH", "./data/prompt_replica.db")

@@ -1,5 +1,6 @@
 import sqlite3
 import json
+from contextlib import contextmanager
 from typing import Optional
 from app.core.config import SQLITE_PATH
 from app.core.logger import api_logger, prompt_logger
@@ -18,33 +19,38 @@ class PromptStore:
         self.sqlite_path = sqlite_path or SQLITE_PATH
         self.logger = prompt_logger or api_logger
 
-    def _get_conn(self):
-        return sqlite3.connect(self.sqlite_path)
+    @contextmanager
+    def _conn(self):
+        conn = sqlite3.connect(self.sqlite_path)
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def init_db(self) -> None:
         """Create the prompt_replica table if missing."""
         self.logger.info(f"Initializing prompt store DB at {self.sqlite_path}")
-        conn = self._get_conn()
-        cur = conn.cursor()
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS prompt_replica (
-                prompt_name TEXT NOT NULL,
-                version INTEGER NOT NULL,
-                prompt_text TEXT NOT NULL,
-                updated_at TEXT,
-                created_at TEXT,
-                labels TEXT,
-                config TEXT,
-                created_by TEXT,
-                commit_message TEXT,
-                PRIMARY KEY (prompt_name, version)
+        with self._conn() as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS prompt_replica (
+                    prompt_name TEXT NOT NULL,
+                    version INTEGER NOT NULL,
+                    prompt_text TEXT NOT NULL,
+                    updated_at TEXT,
+                    created_at TEXT,
+                    labels TEXT,
+                    config TEXT,
+                    created_by TEXT,
+                    commit_message TEXT,
+                    PRIMARY KEY (prompt_name, version)
+                )
+                """
             )
-            """
-        )
-        conn.commit()
-        cur.close()
-        conn.close()
         self.logger.info("Prompt store DB initialized")
 
     def store_if_new(
@@ -65,66 +71,49 @@ class PromptStore:
         False if skipped due to existing version.
         """
         try:
-            conn = self._get_conn()
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT prompt_text, updated_at, labels, config, created_by, created_at, commit_message FROM prompt_replica WHERE prompt_name = ? AND version = ? LIMIT 1",
-                (prompt_name, version),
-            )
-            row = cur.fetchone()
+            with self._conn() as conn:
+                row = conn.execute(
+                    "SELECT prompt_text, updated_at, labels, config, created_by, created_at, commit_message FROM prompt_replica WHERE prompt_name = ? AND version = ? LIMIT 1",
+                    (prompt_name, version),
+                ).fetchone()
 
-            if not row:
-                cur.execute(
-                    "INSERT INTO prompt_replica (prompt_name, version, prompt_text, updated_at, labels, config, created_by, created_at, commit_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (prompt_name, version, prompt_text, updated_at, labels, config, created_by, created_at, commit_message),
-                )
-                conn.commit()
-                cur.close()
-                conn.close()
-                self.logger.info(f"Inserted prompt: {prompt_name} v{version}")
-                return "inserted"
+                if not row:
+                    conn.execute(
+                        "INSERT INTO prompt_replica (prompt_name, version, prompt_text, updated_at, labels, config, created_by, created_at, commit_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (prompt_name, version, prompt_text, updated_at, labels, config, created_by, created_at, commit_message),
+                    )
+                    self.logger.info(f"Inserted prompt: {prompt_name} v{version}")
+                    return "inserted"
 
-            # Compare existing row to incoming data; update if any metadata changed
-            existing = {
-                "prompt_text": row[0],
-                "updated_at": row[1],
-                "labels": row[2],
-                "config": row[3],
-                "created_by": row[4],
-                "created_at": row[5],
-                "commit_message": row[6],
-            }
+                # Compare existing row to incoming data; update if any metadata changed
+                existing = {
+                    "prompt_text": row[0],
+                    "updated_at": row[1],
+                    "labels": row[2],
+                    "config": row[3],
+                    "created_by": row[4],
+                    "created_at": row[5],
+                    "commit_message": row[6],
+                }
 
-            changed = False
-            if (existing.get("prompt_text") or "") != (prompt_text or ""):
-                changed = True
-            if (existing.get("labels") or "") != (labels or ""):
-                changed = True
-            if (existing.get("config") or "") != (config or ""):
-                changed = True
-            if (existing.get("created_by") or "") != (created_by or ""):
-                changed = True
-            if (existing.get("created_at") or "") != (created_at or ""):
-                changed = True
-            if (existing.get("commit_message") or "") != (commit_message or ""):
-                changed = True
-            if (existing.get("updated_at") or "") != (updated_at or ""):
-                changed = True
+                changed = any([
+                    (existing.get("prompt_text") or "") != (prompt_text or ""),
+                    (existing.get("labels") or "") != (labels or ""),
+                    (existing.get("config") or "") != (config or ""),
+                    (existing.get("created_by") or "") != (created_by or ""),
+                    (existing.get("created_at") or "") != (created_at or ""),
+                    (existing.get("commit_message") or "") != (commit_message or ""),
+                    (existing.get("updated_at") or "") != (updated_at or ""),
+                ])
 
-            if changed:
-                cur.execute(
-                    "UPDATE prompt_replica SET prompt_text = ?, updated_at = ?, labels = ?, config = ?, created_by = ?, created_at = ?, commit_message = ? WHERE prompt_name = ? AND version = ?",
-                    (prompt_text, updated_at, labels, config, created_by, created_at, commit_message, prompt_name, version),
-                )
-                conn.commit()
-                cur.close()
-                conn.close()
-                self.logger.info(f"Updated prompt metadata: {prompt_name} v{version}")
-                return "updated"
+                if changed:
+                    conn.execute(
+                        "UPDATE prompt_replica SET prompt_text = ?, updated_at = ?, labels = ?, config = ?, created_by = ?, created_at = ?, commit_message = ? WHERE prompt_name = ? AND version = ?",
+                        (prompt_text, updated_at, labels, config, created_by, created_at, commit_message, prompt_name, version),
+                    )
+                    self.logger.info(f"Updated prompt metadata: {prompt_name} v{version}")
+                    return "updated"
 
-            # No changes
-            cur.close()
-            conn.close()
             self.logger.debug(f"Prompt already exists and unchanged: {prompt_name} v{version}")
             return "skipped"
         except Exception as e:
@@ -134,12 +123,8 @@ class PromptStore:
     def list_all_entries(self) -> set:
         """Return a set of (prompt_name, version) tuples currently stored."""
         try:
-            conn = self._get_conn()
-            cur = conn.cursor()
-            cur.execute("SELECT prompt_name, version FROM prompt_replica")
-            rows = cur.fetchall()
-            cur.close()
-            conn.close()
+            with self._conn() as conn:
+                rows = conn.execute("SELECT prompt_name, version FROM prompt_replica").fetchall()
             return set((r[0], int(r[1])) for r in rows)
         except Exception as e:
             self.logger.error(f"Failed to list prompt entries: {e}")
@@ -148,15 +133,11 @@ class PromptStore:
     def delete_entry(self, prompt_name: str, version: int) -> None:
         """Delete a specific prompt/version from the store."""
         try:
-            conn = self._get_conn()
-            cur = conn.cursor()
-            cur.execute(
-                "DELETE FROM prompt_replica WHERE prompt_name = ? AND version = ?",
-                (prompt_name, version),
-            )
-            conn.commit()
-            cur.close()
-            conn.close()
+            with self._conn() as conn:
+                conn.execute(
+                    "DELETE FROM prompt_replica WHERE prompt_name = ? AND version = ?",
+                    (prompt_name, version),
+                )
             self.logger.info(f"Deleted prompt from store: {prompt_name} v{version}")
         except Exception as e:
             self.logger.error(f"Failed to delete prompt {prompt_name} v{version}: {e}")
@@ -171,15 +152,11 @@ class PromptStore:
         Returns None if no production-labelled row exists.
         """
         try:
-            conn = self._get_conn()
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT version, prompt_text, updated_at, labels, config, created_by, created_at, commit_message FROM prompt_replica WHERE prompt_name = ? ORDER BY version DESC",
-                (prompt_name,)
-            )
-            rows = cur.fetchall()
-            cur.close()
-            conn.close()
+            with self._conn() as conn:
+                rows = conn.execute(
+                    "SELECT version, prompt_text, updated_at, labels, config, created_by, created_at, commit_message FROM prompt_replica WHERE prompt_name = ? ORDER BY version DESC",
+                    (prompt_name,)
+                ).fetchall()
 
             if not rows:
                 return None
@@ -238,15 +215,11 @@ class PromptStore:
     def get_prompt_version(self, prompt_name: str, version: int) -> Optional[dict]:
         """Return a specific version row for a prompt_name as a dict, or None."""
         try:
-            conn = self._get_conn()
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT version, prompt_text, updated_at, labels, config, created_by, created_at, commit_message FROM prompt_replica WHERE prompt_name = ? AND version = ? LIMIT 1",
-                (prompt_name, version),
-            )
-            row = cur.fetchone()
-            cur.close()
-            conn.close()
+            with self._conn() as conn:
+                row = conn.execute(
+                    "SELECT version, prompt_text, updated_at, labels, config, created_by, created_at, commit_message FROM prompt_replica WHERE prompt_name = ? AND version = ? LIMIT 1",
+                    (prompt_name, version),
+                ).fetchone()
             if not row:
                 return None
             return {
