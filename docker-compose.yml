@@ -21,8 +21,9 @@ services:
       - .env  # Fallback for local dev; shell env vars (TeamCity/Octopus) take priority
     volumes:
       - .:/app  # Mount current directory for hot-reload during development
-      - ./logs:/app/logs  # Persist logs outside container
-      - ./data:/data  # Persist SQLite DB on host (local folder `./data`)
+      - ./var/log/ai-compliance-api:/app/logs  # Persist logs outside container
+      - ./var/data:/data  # Persist SQLite DB on host (local folder `./data`)
+      - prometheus_multiproc:/tmp/prometheus_multiproc  # Shared dir for multiprocess metrics
     environment:
       - PYTHONUNBUFFERED=1  # Force real-time log output
       - PROMPT_SQLITE_PATH=/data/prompt_replica.db
@@ -34,12 +35,14 @@ services:
       - ACCESS_TOKEN_EXPIRE_MINUTES
       - REFRESH_TOKEN_EXPIRE_DAYS
       - SERVICE_API_KEY
+      - PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus_multiproc
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+
     # Development mode: Use --reload for auto-restart on code changes
     # Production mode: Use --workers 4 for multiple worker processes
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
@@ -115,6 +118,7 @@ networks:
 volumes:
   prometheus_data:
   grafana_data:
+  prometheus_multiproc:
 
 # ============================================================================
 # Usage Instructions:

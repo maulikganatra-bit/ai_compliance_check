@@ -88,7 +88,10 @@ ai_compliance_check/
 │   │   ├── config.py                  # All configuration & environment variables
 │   │   ├── logger.py                  # Async-safe, queue-based logging with per-request files
 │   │   ├── middleware.py              # Request ID injection middleware
+│   │   ├── metrics.py                 # Prometheus metrics (counters, histograms, gauges)
 │   │   ├── prompt_cache.py            # Langfuse prompt manager (always-fresh fetches)
+│   │   ├── lf_prompt_repo.py          # Langfuse API client for fetching prompts
+│   │   ├── prompt_replica_store.py    # Local SQLite prompt replica/cache store
 │   │   ├── rate_limiter.py            # Dynamic rate limiter (reads OpenAI response headers)
 │   │   └── retry_handler.py           # Exponential backoff with jitter
 │   ├── models/
@@ -121,11 +124,22 @@ ai_compliance_check/
 │   ├── test.json
 │   └── test_ip.json
 ├── logs/                              # Auto-generated per-request log files
+├── monitoring/                        # Prometheus & Grafana configs
+│   ├── prometheus/
+│   │   └── prometheus.yml
+│   └── grafana/
+│       ├── dashboards/
+│       │   └── compliance-dashboard.json
+│       └── provisioning/
+│           └── datasources/
+│               └── datasource.yml
 ├── main.py                            # Root entry point (imports app/main.py)
+├── sync_prompts.py                    # Standalone script for prompt synchronization
+├── compliance_api_check.py            # Integration test script
 ├── requirements.txt
 ├── Dockerfile
-├── docker-compose.yml                 # Development configuration
-├── docker-compose.prod.yml            # Production configuration
+├── docker-compose.yml                 # Development/production configuration (includes monitoring)
+├── docker-compose.prod.yml            # Production-only configuration
 ├── API_DOCUMENTATION.md
 ├── DOCKER_GUIDE.md
 ├── TEST_SUITE_SUMMARY.md
@@ -144,7 +158,8 @@ ai_compliance_check/
 | **Validation** | Pydantic 2.12.5 | Request/response data validation |
 | **Auth** | python-jose 3.5.0, bcrypt 5.0.0 | JWT tokens + password hashing |
 | **HTTP** | httpx 0.28.1 | Async HTTP client with connection pooling |
-| **Observability** | OpenTelemetry SDK 1.39.1 | Distributed tracing & metrics |
+| **Observability** | prometheus-client 0.21.0, prometheus-fastapi-instrumentator 7.0.0 | Prometheus metrics & auto-HTTP instrumentation |
+| **Tracing** | OpenTelemetry SDK 1.39.1 | Distributed tracing (via Langfuse) |
 | **Testing** | pytest 9.0.2, pytest-asyncio, pytest-cov | Async test framework + coverage |
 | **Config** | python-dotenv 1.2.1 | Environment variable loading |
 
@@ -209,6 +224,10 @@ JWT_ALGORITHM=HS256                             # Default: HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=15                  # Default: 15
 REFRESH_TOKEN_EXPIRE_DAYS=7                     # Default: 7
 FRONTEND_URL=http://localhost:3000              # CORS origin
+PROMPT_SQLITE_PATH=/data/prompt_replica.db      # Path for local prompt replica DB
+PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus_multiproc  # Required for multi-worker Prometheus metrics
+ENVIRONMENT=development                         # Environment label (e.g. development, production)
+OCTOPUS_RELEASE=                                # Octopus Deploy release tag (CI/CD)
 ```
 
 Generate a secure service API key:
@@ -308,6 +327,23 @@ curl http://localhost:8000/
 
 ```json
 {"status": "ok", "message": "AI Compliance Checker API is running!"}
+```
+
+### `GET /metrics` - Prometheus Metrics
+
+```bash
+curl http://localhost:8000/metrics
+```
+
+Exposes Prometheus-format metrics including:
+- `http_requests_total` — HTTP request counts by method/handler/status
+- `http_request_duration_seconds` — Request duration histogram
+- `compliance_response_status_total` — Compliance API status codes (200, 400, 401, 500, 601…)
+- `compliance_tokens_used_total` — Cumulative OpenAI tokens consumed
+- `compliance_tokens_per_request` — Token usage histogram per request
+- `compliance_openai_errors_total` — OpenAI error counts by type
+- `compliance_records_in_processing` — Gauge of records currently being processed
+- `compliance_record_processing_seconds` — Per-record latency histogram
 ```
 
 ### `POST /check_compliance` - Compliance Check
@@ -629,6 +665,7 @@ pytest tests/test_endpoints.py -v
 | `test_registry.py` | Rule registry & dispatcher |
 | `test_rules.py` | Rule execution & OpenAI interaction |
 | `test_prompt_cache.py` | Langfuse prompt loading |
+| `test_metrics.py` | Prometheus metrics instrumentation |
 | `test_request_id.py` | Request ID middleware |
 | `test_utils.py` | JSON response parser |
 
@@ -661,9 +698,27 @@ docker-compose -f docker-compose.prod.yml up -d --build
 - Resource limits: 2 CPUs, 4GB RAM
 - Only logs volume mounted (no source code)
 
+### Monitoring Stack
+
+The `docker-compose.yml` includes a full monitoring stack:
+
+| Service | Port | Description |
+|---|---|---|
+| API | 8000 | FastAPI application |
+| Prometheus | 9092 | Metrics collection (scrapes `/metrics` every 15s) |
+| Grafana | 3001 | Dashboards (login: `admin` / `admin`) |
+| Cron | — | Calls `/prompts/sync` every 5 minutes to keep prompt replica fresh |
+
+```bash
+# Access monitoring
+http://localhost:8000/metrics   # Raw Prometheus metrics
+http://localhost:9092           # Prometheus UI (mapped from internal 9090)
+http://localhost:3001           # Grafana dashboards
+```
+
 ### Health Check
 
-Both configurations include a health check at `http://localhost:8000/health` (30s interval, 3 retries).
+Both configurations include a health check at `http://localhost:8000/` (30s interval, 3 retries).
 
 See [DOCKER_GUIDE.md](DOCKER_GUIDE.md) for detailed Docker instructions.
 

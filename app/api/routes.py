@@ -55,6 +55,7 @@ async def check_compliance(
     
     if not compliance_request.Data:
         api_logger.warning("Empty data list received")
+        COMPLIANCE_STATUS_COUNTER.labels(code="400", endpoint="check_compliance").inc()
         raise HTTPException(status_code=400, detail="Empty data list")
     
     # Validate rule IDs and build MLS-scoped rule lookup
@@ -63,8 +64,9 @@ async def check_compliance(
     for rule in compliance_request.AIViolationID:
         if not rule.mlsId:
             api_logger.error(f"Missing mlsId for rule {rule.ID}")
+            COMPLIANCE_STATUS_COUNTER.labels(code="400", endpoint="check_compliance").inc()
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail=f"Rule {rule.ID} is missing required 'mlsId' field"
             )
     
@@ -76,11 +78,12 @@ async def check_compliance(
         invalid_check_columns = [col for col in check_columns if col not in VALID_CHECK_COLUMNS]
         if invalid_check_columns:
             api_logger.error(f"Invalid CheckColumns for rule {rule_id}: {invalid_check_columns}")
+            COMPLIANCE_STATUS_COUNTER.labels(code="400", endpoint="check_compliance").inc()
             raise HTTPException(
                 status_code=400,
                 detail=f"Invalid CheckColumns for rule '{rule_id}': {invalid_check_columns}. Valid columns are: {VALID_CHECK_COLUMNS}"
             )
-    
+
     # Build MLS-scoped rule lookup: (ID, mlsId) -> [columns]
     # For duplicate (ID, mlsId) pairs, merge columns (union)
     mls_rules_map = {}  # Key: (rule_id, mls_id), Value: set of columns
@@ -104,11 +107,12 @@ async def check_compliance(
         
         if not applicable_rules:
             api_logger.error(f"Record {idx} (mlsnum={record.mlsnum}, mlsId={record_mls_id}) has no matching rules")
+            COMPLIANCE_STATUS_COUNTER.labels(code="400", endpoint="check_compliance").inc()
             raise HTTPException(
                 status_code=400,
                 detail=f"Record {idx} (mlsnum={record.mlsnum}, mlsId={record_mls_id}) has no matching rules. Available mlsIds in rules: {list(set(k[1] for k in mls_rules_map.keys()))}"
             )
-        
+
         # Collect all required columns for this record
         required_columns = set()
         for (rule_id, mls_id), columns in applicable_rules.items():
@@ -118,6 +122,7 @@ async def check_compliance(
         missing_columns = required_columns - record_fields
         if missing_columns:
             api_logger.error(f"Record {idx} (mlsnum={record.mlsnum}, mlsId={record_mls_id}) missing required columns: {missing_columns}")
+            COMPLIANCE_STATUS_COUNTER.labels(code="400", endpoint="check_compliance").inc()
             raise HTTPException(
                 status_code=400,
                 detail=f"Record {idx} (mlsnum={record.mlsnum}, mlsId={record_mls_id}) missing required columns: {list(missing_columns)}. Required: {list(required_columns)}"
@@ -493,6 +498,7 @@ async def validate_prompt_response(
     
     if not validation_request.Data:
         api_logger.warning("Empty data list received")
+        COMPLIANCE_STATUS_COUNTER.labels(code="400", endpoint="validate_prompt_response").inc()
         raise HTTPException(status_code=400, detail="Empty data list")
     
     # Validate CheckColumns against VALID_CHECK_COLUMNS
@@ -503,11 +509,12 @@ async def validate_prompt_response(
         invalid_check_columns = [col for col in check_columns if col not in VALID_CHECK_COLUMNS]
         if invalid_check_columns:
             api_logger.error(f"Invalid CheckColumns for rule {rule_id}: {invalid_check_columns}")
+            COMPLIANCE_STATUS_COUNTER.labels(code="400", endpoint="validate_prompt_response").inc()
             raise HTTPException(
                 status_code=400,
                 detail=f"Invalid CheckColumns for rule '{rule_id}': {invalid_check_columns}. Valid columns are: {VALID_CHECK_COLUMNS}"
             )
-    
+
     # Build MLS-scoped rule lookup
     mls_rules_map = {}
     for rule in validation_request.AIViolationID:
@@ -528,18 +535,20 @@ async def validate_prompt_response(
         
         if not applicable_rules:
             api_logger.error(f"Record {idx} (mlsnum={record.mlsnum}, mlsId={record_mls_id}) has no matching rules")
+            COMPLIANCE_STATUS_COUNTER.labels(code="400", endpoint="validate_prompt_response").inc()
             raise HTTPException(
                 status_code=400,
                 detail=f"Record {idx} (mlsnum={record.mlsnum}, mlsId={record_mls_id}) has no matching rules. Available mlsIds in rules: {list(set(k[1] for k in mls_rules_map.keys()))}"
             )
-        
+
         required_columns = set()
         for (rule_id, mls_id), columns in applicable_rules.items():
             required_columns.update(columns)
-        
+
         missing_columns = required_columns - record_fields
         if missing_columns:
             api_logger.error(f"Record {idx} (mlsnum={record.mlsnum}, mlsId={record_mls_id}) missing required columns: {missing_columns}")
+            COMPLIANCE_STATUS_COUNTER.labels(code="400", endpoint="validate_prompt_response").inc()
             raise HTTPException(
                 status_code=400,
                 detail=f"Record {idx} (mlsnum={record.mlsnum}, mlsId={record_mls_id}) missing required columns: {list(missing_columns)}. Required: {list(required_columns)}"

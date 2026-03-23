@@ -8,6 +8,7 @@ This module initializes the FastAPI application with:
 - Dynamic rate limiting initialization
 """
 
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,6 +22,11 @@ from app.core.config import MAX_CONNECTIONS, MAX_KEEPALIVE_CONNECTIONS, API_TIME
 from app.core.metrics import instrumentator
 import httpx
 from openai import AsyncOpenAI
+
+# Ensure the multiprocess metrics directory exists (required when PROMETHEUS_MULTIPROC_DIR is set)
+_prom_multiproc_dir = os.environ.get("PROMETHEUS_MULTIPROC_DIR")
+if _prom_multiproc_dir:
+    os.makedirs(_prom_multiproc_dir, exist_ok=True)
 
 # Global OpenAI client with connection pooling
 # This client is shared across all requests for efficient connection reuse
@@ -132,7 +138,10 @@ app.include_router(router)
 
 # Instrument the app for Prometheus metrics
 # Adds GET /metrics endpoint and auto-tracks HTTP request count, duration, in-flight
-instrumentator.instrument(app).expose(app, include_in_schema=False)
+instrumentator.instrument(
+    app,
+    latency_lowr_buckets=(0.5, 1.0, 2.0, 3.0, 5.0, 7.5, 10.0, 15.0, 20.0, 30.0, 45.0, 60.0, 90.0, 120.0),
+).expose(app, include_in_schema=False)
 
 # Health check endpoint - verifies API is running
 @app.get("/")

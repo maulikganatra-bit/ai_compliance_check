@@ -29,12 +29,20 @@
       ]
     },
     {
-      "title": "Active Requests",
-      "type": "gauge",
+      "title": "Active Requests (In-Flight)",
+      "type": "timeseries",
       "gridPos": { "h": 8, "w": 4, "x": 8, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "fieldConfig": {
         "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 20,
+            "drawStyle": "line",
+            "spanNulls": false
+          },
+          "unit": "short",
+          "color": { "mode": "fixed", "fixedColor": "blue" },
           "thresholds": {
             "steps": [
               { "color": "green", "value": null },
@@ -45,10 +53,14 @@
         },
         "overrides": []
       },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "single" }
+      },
       "targets": [
         {
           "expr": "sum(http_requests_in_progress)",
-          "legendFormat": "In-Flight",
+          "legendFormat": "In-Flight Requests",
           "refId": "A"
         }
       ]
@@ -81,11 +93,19 @@
     },
     {
       "title": "Records In Processing",
-      "type": "gauge",
+      "type": "timeseries",
       "gridPos": { "h": 8, "w": 4, "x": 16, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "fieldConfig": {
         "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 20,
+            "drawStyle": "line",
+            "spanNulls": false
+          },
+          "unit": "short",
+          "color": { "mode": "fixed", "fixedColor": "orange" },
           "thresholds": {
             "steps": [
               { "color": "green", "value": null },
@@ -96,10 +116,14 @@
         },
         "overrides": []
       },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "single" }
+      },
       "targets": [
         {
           "expr": "compliance_records_in_processing",
-          "legendFormat": "Records",
+          "legendFormat": "Records In Processing",
           "refId": "A"
         }
       ]
@@ -131,9 +155,9 @@
       ]
     },
     {
-      "title": "Request Duration P50 / P95 / P99",
+      "title": "Request Duration P50 by Endpoint",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "gridPos": { "h": 8, "w": 4, "x": 0, "y": 8 },
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "fieldConfig": {
         "defaults": {
@@ -142,21 +166,63 @@
         },
         "overrides": []
       },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
-          "legendFormat": "P50",
+          "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, handler))",
+          "legendFormat": "{{handler}}",
           "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Request Duration P95 by Endpoint",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 4, "x": 4, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "unit": "s"
         },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
-          "legendFormat": "P95",
-          "refId": "B"
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, handler))",
+          "legendFormat": "{{handler}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Request Duration P99 by Endpoint",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 4, "x": 8, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "unit": "s"
         },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
         {
-          "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
-          "legendFormat": "P99",
-          "refId": "C"
+          "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, handler))",
+          "legendFormat": "{{handler}}",
+          "refId": "A"
         }
       ]
     },

@@ -9,6 +9,7 @@ from app.auth.jwt_handler import verify_token
 from app.auth.models import User, get_user, TokenData
 from app.auth.api_key_auth import api_key_header, verify_api_key
 from app.core.logger import app_logger
+from app.core.metrics import COMPLIANCE_STATUS_COUNTER
 
 # Security scheme for JWT tokens
 security = HTTPBearer(auto_error=False)
@@ -125,6 +126,7 @@ async def verify_authentication(
             # Verify and decode token
             payload = verify_token(token, token_type="access")
             if payload is None:
+                COMPLIANCE_STATUS_COUNTER.labels(code="401", endpoint="auth").inc()
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Invalid or expired JWT token",
@@ -134,6 +136,7 @@ async def verify_authentication(
             # Extract username from token
             username: Optional[str] = payload.get("sub")
             if username is None:
+                COMPLIANCE_STATUS_COUNTER.labels(code="401", endpoint="auth").inc()
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Invalid token payload",
@@ -143,6 +146,7 @@ async def verify_authentication(
             # Get user from database
             user = get_user(username)
             if user is None:
+                COMPLIANCE_STATUS_COUNTER.labels(code="401", endpoint="auth").inc()
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="User not found",
@@ -167,6 +171,7 @@ async def verify_authentication(
             raise
     
     # Neither authentication method provided
+    COMPLIANCE_STATUS_COUNTER.labels(code="401", endpoint="auth").inc()
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Authentication required. Provide either X-API-Key header or Authorization Bearer token.",

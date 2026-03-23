@@ -10,38 +10,38 @@ url = "http://127.0.0.1:8000/check_compliance"
 # url = "http://tmcailinux03.vesta.themls.com:8000/check_compliance"monitoring/
 # url = "http://tmqailinux01.qa.themls.com:8000/check_compliance"
 
-# with open("./test_data/large_payload.json", "r") as f:
-#     data = json.load(f)
+with open("./test_data/large_payload.json", "r") as f:
+    data = json.load(f)
 
-data = {
-  "AIViolationID": [
-    {
-      "ID": "COMP",
-      "mlsId": "ARMls",
-      "CheckColumns": "Remarks, Directions"
-    },
-    {
-      "ID": "PROMO",
-      "mlsId": "ARMls",
-      "CheckColumns": "Remarks,Directions"
-    }
-    # {
-    #   "ID": "PROMO",
-    #   "mlsId": "ARMls",
-    #   "CheckColumns": "Directions"
-    # }
-  ],
-  "Data": [
-    {
-      "mlsnum": "6942376AR",
-      "Remarks": "Owner Carry 15% down. Move IN READY-ALL INCLUSIVE.Fountain & Mountains-no one above no one below. Beautiful Townhome Open Concept travertine floors, Kit. granite countertops to include custom sitting bar.Upgraded stainless appliance package to include upgraded refrigerator-in home wash\/dryer included.Shutters. Bath down has a collapsible accordion door - everything upgraded and beautiful. Kit. has a extra 15 ft of upper and lower cabinets.Elegant Stairs w\/travertine risers and solid wood leads to a nice size landing enough room for a desk. 2 bedrooms upstairs-Very large master has 2 closets one step in closet. Enclosed carport with storage and another refrigerator. Pool steps away and grass area. Super nice - 2nd BDR furniture will not stay.",
-      "Directions": "GPS Saguaro Woods\r\nVRBO ready - furnished just bring your suitcase\r\n\r\nA\/C One year new - Furnished if they like !!\r\n\r\nOwner\/Agent",
-      "ShowingInstructions": "",
-      "PrivateRemarks": "",
-      "mlsId": "ARMls"
-    }
-  ]
-}
+# data = {
+#   "AIViolationID": [
+#     {
+#       "ID": "COMP",
+#       "mlsId": "ARMls",
+#       "CheckColumns": "Remarks, Directions"
+#     },
+#     {
+#       "ID": "PROMO",
+#       "mlsId": "ARMls",
+#       "CheckColumns": "Remarks,Directions"
+#     }
+#     # {
+#     #   "ID": "PROMO",
+#     #   "mlsId": "ARMls",
+#     #   "CheckColumns": "Directions"
+#     # }
+#   ],
+#   "Data": [
+#     {
+#       "mlsnum": "6942376AR",
+#       "Remarks": "Owner Carry 15% down. Move IN READY-ALL INCLUSIVE.Fountain & Mountains-no one above no one below. Beautiful Townhome Open Concept travertine floors, Kit. granite countertops to include custom sitting bar.Upgraded stainless appliance package to include upgraded refrigerator-in home wash\/dryer included.Shutters. Bath down has a collapsible accordion door - everything upgraded and beautiful. Kit. has a extra 15 ft of upper and lower cabinets.Elegant Stairs w\/travertine risers and solid wood leads to a nice size landing enough room for a desk. 2 bedrooms upstairs-Very large master has 2 closets one step in closet. Enclosed carport with storage and another refrigerator. Pool steps away and grass area. Super nice - 2nd BDR furniture will not stay.",
+#       "Directions": "GPS Saguaro Woods\r\nVRBO ready - furnished just bring your suitcase\r\n\r\nA\/C One year new - Furnished if they like !!\r\n\r\nOwner\/Agent",
+#       "ShowingInstructions": "",
+#       "PrivateRemarks": "",
+#       "mlsId": "ARMls"
+#     }
+#   ]
+# }
 # # data = {
 # #   "AIViolationID": [
 # #     {
